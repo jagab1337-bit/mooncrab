@@ -108,20 +108,35 @@ test('guest request rejects invalid dates, range, identity, and oversized fields
   assert.equal(calls, 0);
 });
 
-test('guest date boundaries accept today and exactly30 nights while rejecting31 nights and checkout beyond the horizon', async () => {
+test('guest date boundaries accept a two-night stay today and 30 nights but reject 31 nights and checkout beyond the horizon', async () => {
   const handler = createBookingRequestHandler({ env, now, command: async () => ['created', id] });
   const base = request().body as Record<string, unknown>;
   for (const [checkIn, checkOut, code] of [
-    ['2026-11-18', '2026-11-19', 201],
+    ['2026-11-18', '2026-11-20', 201],
     ['2026-11-18', '2026-12-18', 201],
     ['2026-11-18', '2026-12-19', 400],
-    ['2028-10-30', '2028-10-31', 201],
+    ['2028-10-29', '2028-10-31', 201],
     ['2028-10-31', '2028-11-01', 400],
   ] as const) {
     const res = response();
     await handler(request({ body: { ...base, checkIn, checkOut } }), res);
     assert.equal(res.code, code, `${checkIn} / ${checkOut}`);
   }
+});
+
+test('one-night requests are rejected before storage while two-night requests are accepted', async () => {
+  let calls = 0;
+  const handler = createBookingRequestHandler({ env, now, command: async () => { calls++; return ['created', id]; } });
+  const base = request().body as Record<string, unknown>;
+  const tooShort = response();
+  await handler(request({ body: { ...base, checkOut: '2026-11-21' } }), tooShort);
+  assert.equal(tooShort.code, 400);
+  assert.match(String((tooShort.body as { error: string }).error), /2–30 nights/);
+  assert.equal(calls, 0);
+  const accepted = response();
+  await handler(request(), accepted);
+  assert.equal(accepted.code, 201);
+  assert.equal(calls, 1);
 });
 
 test('guest request handles duplicate, conflict, rate limit, and initialization results honestly', async () => {

@@ -51,6 +51,18 @@ test('blocked nights cannot be crossed; blocked date may be checkout', async ({ 
   await expect(page.locator('#stay-length')).toContainText('2 nights');
   await expect(page.getByRole('button', { name: 'Request this stay' })).toBeEnabled();
 });
+test('calendar requires two nights before accepting a check-out date', async ({ page }) => {
+  await calendar(page);
+  await expect(page.locator('#stay-length')).toContainText('Minimum 2 nights');
+  await day(page, 10).click();
+  await day(page, 11).click();
+  await expect(page.locator('#calendar-status')).toContainText('minimum stay of 2 nights');
+  await expect(page.locator('#check-out')).toHaveText('Choose a date');
+  await expect(page.getByRole('button', { name: 'Request this stay' })).toBeDisabled();
+  await day(page, 12).click();
+  await expect(page.locator('#stay-length')).toContainText('2 nights');
+  await expect(page.getByRole('button', { name: 'Request this stay' })).toBeEnabled();
+});
 test('sends a pending request with actual selected dates, not a confirmed booking', async ({ page }) => {
   let payload: Record<string, unknown> = {};
   await page.route('**/api/booking-requests', async route => {

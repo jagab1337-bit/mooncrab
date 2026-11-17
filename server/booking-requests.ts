@@ -43,7 +43,7 @@ function parseRequest(body: unknown, now: Date): ValidRequest | null {
   const range = monthRange(now);
   if (checkIn < range.today || checkOut > range.lastDate) return null;
   const nights = stayNights(checkIn, checkOut);
-  if (!nights.length || nights.length > 30) return null;
+  if (nights.length < 2 || nights.length > 30) return null;
   if (typeof idempotencyKey !== 'string' || !UUID.test(idempotencyKey)) return null;
   if (typeof value.name !== 'string' || typeof value.email !== 'string') return null;
   const name = value.name.trim();
@@ -170,7 +170,7 @@ export function createBookingRequestHandler(options: HandlerOptions = {}) {
     const currentTime = now();
     const input = parseRequest(req.body, currentTime);
     if (!input) {
-      res.status(400).json({ error: 'Enter valid guest details and a stay of 1–30 nights within the next 24 months.' });
+      res.status(400).json({ error: 'Enter valid guest details and a stay of 2–30 nights within the next 24 months.' });
       return;
     }
     if (!configured(env)) { unavailable(res); return; }
