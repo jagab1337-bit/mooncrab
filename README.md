@@ -62,6 +62,6 @@ All owner endpoints require `Authorization: Bearer <owner key>`. Responses are n
 
 ## Photos and brand assets
 
-The current island artwork is an original **illustration**, not a property photograph. The room panel is typographic artwork. These are explicitly marked as interim until the shared Dropbox folder can be downloaded. Do not present invented room photographs as KASAG. The supplied property photos, actual logo, and brand-color reference must be incorporated before claiming the requested branded site is complete.
+The supplied Dropbox photographs, Moon Crab logo, and five-color palette are applied across the landing and booking pages. See [BRAND.md](BRAND.md) for asset provenance and font availability. Public photos are optimized WebPs in `public/images/`; full-resolution source photos remain outside the repository.
 
-Keep optimized public image files in `public/images/`. Keep source brand material outside the public folder if it should not be published. No nightly rate, guest capacity, precise property address, Wi-Fi, air conditioning, or other unverified amenities are claimed.
+No nightly rate, guest capacity, precise property address, Wi-Fi, or other unverified amenities are claimed.
