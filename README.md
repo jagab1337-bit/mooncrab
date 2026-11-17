@@ -66,4 +66,14 @@ All owner endpoints require `Authorization: Bearer <owner key>`. Responses are n
 
 The supplied Dropbox photographs, Moon Crab logo, and five-color palette are applied across the landing and booking pages. See [BRAND.md](BRAND.md) for asset provenance and font availability. Public photos are optimized WebPs in `public/images/`; full-resolution source photos remain outside the repository.
 
-No nightly rate, guest capacity, precise property address, Wi-Fi, or other unverified amenities are claimed.
+The owner supplied occupancy (2 included; a maximum of 3 with PHP 500/night for the third guest), 2 PM check-in, 11 AM check-out, and house-rule fees. The exact General Luna Maps pin was verified from the owner’s shared link. The base nightly room rate is quoted by the host; no rate or refund policy is invented.
+
+## Guest details and manual deposits
+
+Requests accept 1–3 guests, defaulting to 2 for old clients/records. The server calculates the third-guest supplement at PHP 500 per occupied night; guest-supplied fee overrides are ignored. The owner dashboard displays this supplement and requires the host to acknowledge that the total has been agreed and the 50% deposit verified in the host’s bank account before confirming.
+
+Payments currently use a manual personal-bank transfer/receiving-QR workflow after host review. No bank details or QR have been published, no automatic payment verification is claimed, and no card checkout is enabled. The host sends the receiving details privately with the agreed total, checks actual credited funds, and confirms the request. A pending request does not hold dates; avoid issuing competing payable quotes for the same dates. Hosted card/e-wallet checkout would require an activated merchant provider and a separate hold/webhook design.
+
+Guest perks: airport pickup/drop-off at PHP 350/person/way, red 2023 Mitsubishi Strada GLS guest rental from PHP 2,500/day, local tour/activity coordination, and motorbike rental assistance. Add-on links prefill the booking enquiry. Rates and availability are confirmed by the host.
+
+The homepage’s Google Maps iframe uses the owner’s verified business listing. The CSP allows framing only from `https://www.google.com`; owner/API security and Redis records are unchanged. Scroll reveals and anchor scrolling respect reduced-motion preferences.

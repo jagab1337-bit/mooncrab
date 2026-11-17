@@ -71,13 +71,15 @@ test('sends a pending request with actual selected dates, not a confirmed bookin
   });
   await calendar(page);
   await day(page, 10).click(); await day(page, 13).click();
+  await page.getByLabel('Number of guests').selectOption('3');
+  await expect(page.locator('#guest-charge')).toContainText('₱1,500');
   await page.getByLabel('Your name').fill('Island Guest');
   await page.getByLabel('Email address').fill('guest@example.com');
   await page.getByLabel('A note for your host').fill('Looking forward to Siargao.');
   await page.getByRole('checkbox').check();
   await page.getByRole('button', { name: 'Request this stay' }).click();
   await expect(page.locator('#request-status')).toContainText('Your room is not reserved until confirmed');
-  expect(payload).toMatchObject({ checkIn: date(10), checkOut: date(13), name: 'Island Guest', email: 'guest@example.com' });
+  expect(payload).toMatchObject({ checkIn: date(10), checkOut: date(13), guests: 3, name: 'Island Guest', email: 'guest@example.com' });
 });
 test('owner must verify existing reservations before publishing; key is not persisted', async ({ page }) => {
   let initialized = false;
