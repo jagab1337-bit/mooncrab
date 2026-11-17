@@ -3,7 +3,7 @@ import { DEFAULT_PRICING, type PricingConfig } from '../shared/pricing.ts';
 export const CONTACTS = {
   phone: '+639625284264', whatsappUrl: 'https://wa.me/639625284264',
   facebookUrl: 'https://www.facebook.com/share/1CsWCrqdR8/?mibextid=wwXIfr',
-  instagramUrl: 'https://www.instagram.com/mooncrabhosteliao/',
+  instagramUrl: 'https://www.instagram.com/mooncrabsiargao/',
   email: 'greetings@mooncrabsiargao.com', bookingEmail: 'bookings@mooncrabsiargao.com',
   notificationEmail: 'greetings@mooncrabsiargao.com',
 };

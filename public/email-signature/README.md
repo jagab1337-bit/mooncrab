@@ -34,7 +34,7 @@ Open Settings and search for **Signatures** (or **Mail → Compose and reply** i
 - `*-local.html`: offline previews using images in this folder. These are for previewing the downloaded package; install the hosted version so recipients can load the images.
 - `mooncrab-email-signature.txt`: plain-text fallback.
 - `mooncrab-logo.png`: complete logo, displayed without cropping.
-- `qr-booking.png`, `qr-whatsapp.png`, `qr-instagram.png`, `qr-maps.png`: real QR codes with four-module quiet zones, dark cocoa on cream.
+- `qr-booking.png`, `qr-whatsapp.png`, `qr-instagram-mooncrabsiargao.png`, `qr-maps.png`: real QR codes with four-module quiet zones, dark cocoa on cream.
 - `qr-destinations.json`: exact destinations and QR verification details.
 
 ## Contact sources
@@ -46,3 +46,5 @@ No Wi-Fi, personal payment or admin QR code is included in this public signature
 ## Email compatibility
 
 The signature uses presentation tables, inline styles, standard fonts, PNG images, explicit image dimensions and no scripts in the signature HTML. Its width fits up to 580px and shrinks on smaller screens. Some email apps may change formatting on paste or apply their own dark-mode colors; send a test from your actual email app before using it widely. The copying helper is only on the installation page and is not part of the email signature.
+
+The owner corrected the Instagram account to @mooncrabsiargao. All profile links and the Instagram QR use https://www.instagram.com/mooncrabsiargao/. Re-copy the updated signature if an older version was installed.

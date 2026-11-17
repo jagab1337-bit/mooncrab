@@ -13,7 +13,7 @@ export const EMAIL_CONTACTS: TemplateContacts = {
   greetings: 'greetings@mooncrabsiargao.com',
   phone: '+63 962 528 4264',
   whatsapp: 'https://wa.me/639625284264',
-  instagram: 'https://www.instagram.com/mooncrabhosteliao/',
+  instagram: 'https://www.instagram.com/mooncrabsiargao/',
   facebook: 'https://www.facebook.com/share/1CsWCrqdR8/?mibextid=wwXIfr',
   maps: 'https://maps.app.goo.gl/RwCRdtYfqmGDei1e8',
 };

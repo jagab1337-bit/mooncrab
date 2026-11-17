@@ -20,11 +20,11 @@
     "verified_at_display_size_px": 80
   },
   {
-    "asset": "qr-instagram.png",
-    "destination": "https://www.instagram.com/mooncrabhosteliao/",
+    "asset": "qr-instagram-mooncrabsiargao.png",
+    "destination": "https://www.instagram.com/mooncrabsiargao/",
     "size": [
-      410,
-      410
+      370,
+      370
     ],
     "quiet_zone_modules": 4,
     "verified_at_display_size_px": 80
