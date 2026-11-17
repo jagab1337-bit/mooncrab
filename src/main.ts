@@ -6,6 +6,7 @@ import './style.css';
 import { startPhotoViewer } from './lightbox.ts';
 import { createBookingUi, phoneFields, bookingAlternatives } from './booking-ui.ts';
 import { renderExplore } from './explore.ts';
+import { startExploreCarousel } from './explore-carousel.ts';
 import { getPublicConfig, hydrateContacts } from './business.ts';
 import { arrow, book, header, footer, home, icon, renderLanding, startMotion } from './site.ts';
 
@@ -188,6 +189,7 @@ else if (bookingHost || location.pathname === '/booking') booking();
 else renderLanding(app);
 startMotion();
 startPhotoViewer();
+startExploreCarousel();
 
 hydrateContacts();
 void getPublicConfig().then(config => { hydrateContacts(config.contacts); document.querySelectorAll<HTMLElement>('[data-rate]').forEach(el => { const key = el.dataset.rate as 'nightlyPhp'|'weeklyPhp'|'monthlyPhp'; el.textContent = new Intl.NumberFormat('en-PH', {style:'currency',currency:'PHP',maximumFractionDigits:0}).format(config.pricing[key]); }); }).catch(() => {});
