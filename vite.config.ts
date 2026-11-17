@@ -24,6 +24,7 @@ export default defineConfig(({ mode }) => {
   return {
     plugins: [{ name: 'mooncrab-local-api', configureServer(server) {
       server.middlewares.use(async (request, response, next) => {
+        if (request.url === '/email-signature/' || request.url === '/email-signature') request.url = '/email-signature/index.html';
         const url = new URL(request.url || '/', 'http://localhost');
         const handler = routes.get(url.pathname);
         if (!handler) return next();
