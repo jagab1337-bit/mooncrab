@@ -13,6 +13,7 @@ const id = '371f802b-e248-4189-8b85-12b5a4664f33';
 const record = {
   id, checkIn: '2026-11-20', checkOut: '2026-11-22', name: 'Test Guest',
   email: 'guest@example.com', message: '', status: 'pending',
+  guests: 2, extraGuestFeePhp: 0,
   createdAt: now().toISOString(), updatedAt: now().toISOString(),
 };
 
@@ -71,8 +72,47 @@ test('valid guest request is normalized and accepted without exposing guest fiel
   assert.equal(stored.name, 'Test Guest');
   assert.equal(stored.email, 'guest@example.com');
   assert.equal(stored.status, 'pending');
+  assert.equal(stored.guests, 2);
+  assert.equal(stored.extraGuestFeePhp, 0);
   assert.deepEqual(JSON.parse(String(captured[12])), ['2026-11-20', '2026-11-21']);
   assert.equal(res.headers['cache-control'], 'no-store');
+});
+
+test('guest counts must be integers from one to three before storage is called', async () => {
+  let calls = 0;
+  const handler = createBookingRequestHandler({ env, now, command: async () => { calls++; return ['created', id]; } });
+  const base = request().body as Record<string, unknown>;
+  for (const guests of [0, 4, -1, 1.5, '3', null, true, [], {}]) {
+    const res = response();
+    await handler(request({ body: { ...base, guests } }), res);
+    assert.equal(res.code, 400, JSON.stringify(guests));
+  }
+  assert.equal(calls, 0);
+});
+
+test('third-guest supplement is computed per occupied night and ignores client fee overrides', async () => {
+  const records: Array<Record<string, unknown>> = [];
+  const handler = createBookingRequestHandler({ env, now, command: async (args) => { records.push(JSON.parse(String(args[11]))); return ['created', id]; } });
+  const base = request().body as Record<string, unknown>;
+  for (const [guests, checkOut, expectedFee] of [[1, '2026-11-22', 0], [2, '2026-11-22', 0], [3, '2026-11-22', 1000], [3, '2026-11-25', 2500]] as const) {
+    const res = response();
+    await handler(request({ body: { ...base, guests, checkOut, extraGuestFeePhp: -50000 } }), res);
+    assert.equal(res.code, 201);
+    assert.equal(records.at(-1)?.guests, guests);
+    assert.equal(records.at(-1)?.extraGuestFeePhp, expectedFee);
+    assert.deepEqual(res.body, { id, status: 'pending' });
+  }
+});
+
+test('retry digests distinguish occupancy changes while defaulting old clients to two guests', async () => {
+  const digests: string[] = [];
+  const handler = createBookingRequestHandler({ env, now, command: async (args) => { digests.push(String(args[14])); return ['created', id]; } });
+  const base = request().body as Record<string, unknown>;
+  await handler(request(), response());
+  await handler(request({ body: { ...base, guests: 2 } }), response());
+  await handler(request({ body: { ...base, guests: 3 } }), response());
+  assert.equal(digests[0], digests[1]);
+  assert.notEqual(digests[1], digests[2]);
 });
 
 test('request rate-limit keys hash the guest email and trusted forwarded IP', async () => {
@@ -181,6 +221,22 @@ test('owner request list requires authentication and hides internal data', async
   await createAdminBookingRequestsHandler({ env, now, command: async () => [JSON.stringify({ ...record, digest: 'internal' })] })(adminRequest(), authenticated);
   assert.equal(authenticated.code, 200);
   assert.deepEqual(authenticated.body, { requests: [record] });
+});
+
+test('legacy stored requests remain readable for two guests with no supplement, including cancelled stays', async () => {
+  const { guests: _guests, extraGuestFeePhp: _fee, ...legacy } = record;
+  const cancelled = { ...legacy, status: 'cancelled' };
+  const res = response();
+  await createAdminBookingRequestsHandler({ env, now, command: async () => [JSON.stringify(legacy), JSON.stringify(cancelled)] })(adminRequest(), res);
+  assert.equal(res.code, 200);
+  assert.deepEqual(res.body, { requests: [record, { ...record, status: 'cancelled' }] });
+});
+
+test('owner records show validated occupancy and the computed extra guest supplement', async () => {
+  const res = response();
+  await createAdminBookingRequestsHandler({ env, now, command: async () => [JSON.stringify({ ...record, guests: 3, extraGuestFeePhp: 0, internal: 'hidden' })] })(adminRequest(), res);
+  assert.equal(res.code, 200);
+  assert.deepEqual(res.body, { requests: [{ ...record, guests: 3, extraGuestFeePhp: 1000 }] });
 });
 
 test('owner confirmation submits an atomic action for the correct occupied nights', async () => {

@@ -1,7 +1,7 @@
 import './manage.css';
 
 type CalendarResponse = { blockedDates: string[]; initialized: boolean; error?: string };
-type BookingRequest = { id: string; checkIn: string; checkOut: string; name: string; email: string; message: string; status: 'pending' | 'confirmed' | 'declined' | 'cancelled'; createdAt: string; updatedAt: string };
+type BookingRequest = { id: string; checkIn: string; checkOut: string; name: string; email: string; message: string; guests?: number; extraGuestFeePhp?: number; status: 'pending' | 'confirmed' | 'declined' | 'cancelled'; createdAt: string; updatedAt: string };
 
 /** Owner-only calendar. Credentials stay in this function's memory. */
 export async function renderManage(container: HTMLElement): Promise<void> {
@@ -67,7 +67,7 @@ export async function renderManage(container: HTMLElement): Promise<void> {
       </div>
       <section class="owner-card owner-requests" id="owner-requests-area" hidden aria-labelledby="owner-requests-title">
         <div class="owner-requests-heading"><h2 id="owner-requests-title">Stay requests</h2><button id="owner-refresh-requests" type="button">Refresh requests</button></div>
-        <p class="owner-instructions">Requests do not hold dates. Agree the rate and stay details with the guest before confirming. A confirmation blocks the room’s nights automatically; contact the guest to confirm their stay.</p>
+        <p class="owner-instructions">Requests do not hold dates. Agree the total rate, including any extra guest fee, then send your personal bank receiving QR to the guest. Verify the 50% deposit in your bank account before confirming. Confirmation blocks the room’s nights; contact the guest with their confirmation. Payments are checked manually.</p>
         <p id="owner-requests-status" class="owner-status" role="status" aria-live="polite"></p>
         <div id="owner-requests-list"></div>
       </section>
@@ -163,6 +163,11 @@ export async function renderManage(container: HTMLElement): Promise<void> {
       const dates = document.createElement('p');
       dates.className = 'owner-request-dates';
       dates.textContent = `${describe(booking.checkIn)} → ${describe(booking.checkOut)}`;
+      const occupancy = document.createElement('p');
+      occupancy.className = 'owner-request-guests';
+      const guests = booking.guests ?? 2;
+      const supplement = booking.extraGuestFeePhp ?? 0;
+      occupancy.textContent = `${guests} ${guests === 1 ? 'guest' : 'guests'} · ${supplement ? `PHP ${supplement.toLocaleString('en-PH')} extra guest fee (PHP 500/night)` : 'No extra guest fee'}`;
       const email = document.createElement('a');
       email.className = 'owner-request-email';
       email.href = `mailto:${encodeURIComponent(booking.email)}`;
@@ -173,14 +178,14 @@ export async function renderManage(container: HTMLElement): Promise<void> {
       const id = document.createElement('p');
       id.className = 'owner-request-id';
       id.textContent = `Reference ${booking.id}`;
-      card.append(heading, dates, email, message, id);
+      card.append(heading, dates, occupancy, email, message, id);
       if (booking.status === 'pending') {
         const agreement = document.createElement('label');
         agreement.className = 'owner-request-agreement';
         const agreed = document.createElement('input');
         agreed.type = 'checkbox';
         const agreementLabel = document.createElement('span');
-        agreementLabel.textContent = 'Rate and stay details agreed with the guest';
+        agreementLabel.textContent = 'Total rate agreed and 50% deposit verified in my bank account';
         agreement.append(agreed, agreementLabel);
         const actions = document.createElement('div');
         actions.className = 'owner-request-actions';
@@ -238,7 +243,9 @@ export async function renderManage(container: HTMLElement): Promise<void> {
       const valid = result.requests.every((entry: unknown) => {
         if (!entry || typeof entry !== 'object') return false;
         const row = entry as Record<string, unknown>;
-        return ['id', 'checkIn', 'checkOut', 'name', 'email', 'message', 'status'].every((key) => typeof row[key] === 'string') && ['pending', 'confirmed', 'declined', 'cancelled'].includes(String(row.status)) && /^\d{4}-\d{2}-\d{2}$/.test(String(row.checkIn)) && /^\d{4}-\d{2}-\d{2}$/.test(String(row.checkOut));
+        return ['id', 'checkIn', 'checkOut', 'name', 'email', 'message', 'status'].every((key) => typeof row[key] === 'string') && ['pending', 'confirmed', 'declined', 'cancelled'].includes(String(row.status)) && /^\d{4}-\d{2}-\d{2}$/.test(String(row.checkIn)) && /^\d{4}-\d{2}-\d{2}$/.test(String(row.checkOut))
+          && (row.guests === undefined || (typeof row.guests === 'number' && Number.isInteger(row.guests) && row.guests >= 1 && row.guests <= 3))
+          && (row.extraGuestFeePhp === undefined || (typeof row.extraGuestFeePhp === 'number' && Number.isSafeInteger(row.extraGuestFeePhp) && row.extraGuestFeePhp >= 0));
       });
       if (!valid) throw new Error('Stay requests returned an unexpected response. Please try again.');
       bookingRequests = result.requests as BookingRequest[];

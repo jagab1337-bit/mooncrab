@@ -17,6 +17,8 @@ export interface BookingRequest {
   name: string;
   email: string;
   message: string;
+  guests: number;
+  extraGuestFeePhp: number;
   status: 'pending' | 'confirmed' | 'declined' | 'cancelled';
   createdAt: string;
   updatedAt: string;
@@ -24,7 +26,7 @@ export interface BookingRequest {
 
 interface ValidRequest {
   checkIn: string; checkOut: string; name: string; email: string;
-  message: string; idempotencyKey: string; nights: string[];
+  message: string; guests: number; extraGuestFeePhp: number; idempotencyKey: string; nights: string[];
 }
 
 export function stayNights(checkIn: string, checkOut: string): string[] {
@@ -44,6 +46,9 @@ function parseRequest(body: unknown, now: Date): ValidRequest | null {
   if (checkIn < range.today || checkOut > range.lastDate) return null;
   const nights = stayNights(checkIn, checkOut);
   if (nights.length < 2 || nights.length > 30) return null;
+  const guests = value.guests === undefined ? 2 : value.guests;
+  if (typeof guests !== 'number' || !Number.isInteger(guests) || guests < 1 || guests > 3) return null;
+  const extraGuestFeePhp = guests === 3 ? nights.length * 500 : 0;
   if (typeof idempotencyKey !== 'string' || !UUID.test(idempotencyKey)) return null;
   if (typeof value.name !== 'string' || typeof value.email !== 'string') return null;
   const name = value.name.trim();
@@ -52,7 +57,7 @@ function parseRequest(body: unknown, now: Date): ValidRequest | null {
   if (name.length < 2 || name.length > 100 || /[\u0000-\u001f]/.test(name)) return null;
   if (email.length > 254 || !EMAIL.test(email)) return null;
   if (typeof message !== 'string' || message.length > 2000 || /[\u0000-\u0008\u000b\u000c\u000e-\u001f]/.test(message)) return null;
-  return { checkIn, checkOut, name, email, message: message.trim(), idempotencyKey: idempotencyKey.toLowerCase(), nights };
+  return { checkIn, checkOut, name, email, message: message.trim(), guests, extraGuestFeePhp, idempotencyKey: idempotencyKey.toLowerCase(), nights };
 }
 
 export function requestExpiry(checkOut: string): number {
@@ -72,9 +77,13 @@ function safeRecord(value: unknown): BookingRequest {
       || typeof record.message !== 'string' || typeof record.createdAt !== 'string' || typeof record.updatedAt !== 'string') {
     throw new Error('Invalid request record');
   }
+  const guests = record.guests === undefined ? 2 : record.guests;
+  if (typeof guests !== 'number' || !Number.isInteger(guests) || guests < 1 || guests > 3) throw new Error('Invalid guest count');
+  // Old records predate occupancy fields. Derive the supplement from validated dates and guest count.
+  const extraGuestFeePhp = guests === 3 ? stayNights(record.checkIn, record.checkOut).length * 500 : 0;
   // Return only the intentional owner-facing fields, never internal digests.
   const { id, checkIn, checkOut, name, email, message, status, createdAt, updatedAt } = record;
-  return { id, checkIn, checkOut, name, email, message, status, createdAt, updatedAt };
+  return { id, checkIn, checkOut, name, email, message, guests, extraGuestFeePhp, status, createdAt, updatedAt };
 }
 
 export const CREATE_REQUEST_SCRIPT = `
@@ -170,7 +179,7 @@ export function createBookingRequestHandler(options: HandlerOptions = {}) {
     const currentTime = now();
     const input = parseRequest(req.body, currentTime);
     if (!input) {
-      res.status(400).json({ error: 'Enter valid guest details and a stay of 2–30 nights within the next 24 months.' });
+      res.status(400).json({ error: 'Enter valid details for 1–3 guests and a stay of 2–30 nights within the next 24 months.' });
       return;
     }
     if (!configured(env)) { unavailable(res); return; }
@@ -180,6 +189,7 @@ export function createBookingRequestHandler(options: HandlerOptions = {}) {
       const record: BookingRequest = {
         id, checkIn: input.checkIn, checkOut: input.checkOut,
         name: input.name, email: input.email, message: input.message,
+        guests: input.guests, extraGuestFeePhp: input.extraGuestFeePhp,
         status: 'pending', createdAt: timestamp, updatedAt: timestamp,
       };
       const hash = (value: string) => createHash('sha256').update(value).digest('hex');

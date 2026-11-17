@@ -126,10 +126,33 @@ test('owner cancellation requires guest agreement and sends the intended action'
   const cancel = page.getByRole('button', { name: 'Cancel confirmed stay' });
   await expect(cancel).toBeDisabled();
   await expect(page.locator('#owner-requests-list')).toContainText('<script>guest</script>');
+  await expect(page.locator('.owner-request-guests')).toHaveText('2 guests · No extra guest fee');
   expect(await page.locator('#owner-requests-list script, #owner-requests-list img').count()).toBe(0);
   await page.getByLabel('Cancellation agreed with the guest and guest notified directly').check();
   await cancel.click();
   await expect(page.locator('#owner-requests-status')).toContainText('Stay cancelled');
   expect(action).toEqual({ id: booking().id, action: 'cancel' });
   await expect(page.locator('.owner-request-status')).toHaveText('cancelled');
+});
+
+test('owner reviews occupancy and verifies the manual deposit before confirming', async ({ page }) => {
+  let action: unknown;
+  let current = 'pending';
+  const booking = () => ({ id: 'c9dc880a-c70d-4a90-bcd2-b509728bd0f5', checkIn: date(10), checkOut: date(12), name: 'Three Guests', email: 'guest@example.com', message: '', guests: 3, extraGuestFeePhp: 1000, status: current });
+  await page.route('**/api/admin/availability', route => route.fulfill({ json: { initialized: true, blockedDates: current === 'confirmed' ? [date(10), date(11)] : [] } }));
+  await page.route('**/api/admin/booking-requests', async route => {
+    if (route.request().method() === 'PATCH') { action = route.request().postDataJSON(); current = 'confirmed'; await route.fulfill({ json: { request: booking() } }); }
+    else await route.fulfill({ json: { requests: [booking()] } });
+  });
+  await page.goto('/manage');
+  await page.getByLabel('Calendar access key').fill('test-owner-key');
+  await page.getByRole('button', { name: 'Unlock calendar' }).click();
+  await expect(page.locator('.owner-request-guests')).toHaveText('3 guests · PHP 1,000 extra guest fee (PHP 500/night)');
+  const confirm = page.getByRole('button', { name: 'Confirm agreed stay' });
+  await expect(confirm).toBeDisabled();
+  expect(action).toBeUndefined();
+  await page.getByLabel('Total rate agreed and 50% deposit verified in my bank account').check();
+  await confirm.click();
+  await expect(page.locator('#owner-requests-status')).toContainText('Stay confirmed and dates blocked');
+  expect(action).toEqual({ id: booking().id, action: 'confirm' });
 });
