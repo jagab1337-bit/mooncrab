@@ -51,10 +51,20 @@ export function monthRange(now: Date): { first: string; last: string; today: str
   return { first, last: end.toISOString().slice(0, 7), today, lastDate: end.toISOString().slice(0, 10) };
 }
 
+function redisCredentials(env: Environment) {
+  // The native Vercel integration supplies KV_* names. Direct Upstash accounts
+  // supply UPSTASH_REDIS_* names. Always select a complete credential pair.
+  if (env.UPSTASH_REDIS_REST_URL && env.UPSTASH_REDIS_REST_TOKEN) {
+    return { url: env.UPSTASH_REDIS_REST_URL, token: env.UPSTASH_REDIS_REST_TOKEN };
+  }
+  return { url: env.KV_REST_API_URL, token: env.KV_REST_API_TOKEN };
+}
+
 export function configured(env: Environment): boolean {
-  if (!env.UPSTASH_REDIS_REST_TOKEN || !env.UPSTASH_REDIS_REST_URL) return false;
+  const credentials = redisCredentials(env);
+  if (!credentials.token || !credentials.url) return false;
   try {
-    const url = new URL(env.UPSTASH_REDIS_REST_URL);
+    const url = new URL(credentials.url);
     return url.protocol === 'https:' && !!url.hostname && !url.username && !url.password && !url.search && !url.hash;
   } catch {
     return false;
@@ -64,10 +74,11 @@ export function configured(env: Environment): boolean {
 export function createRedisCommand(env: Environment): RedisCommand {
   return async (command) => {
     if (!configured(env)) throw new Error('Calendar storage is not configured');
-    const response = await fetch(env.UPSTASH_REDIS_REST_URL!, {
+    const credentials = redisCredentials(env);
+    const response = await fetch(credentials.url!, {
       method: 'POST',
       headers: {
-        Authorization: `Bearer ${env.UPSTASH_REDIS_REST_TOKEN!}`,
+        Authorization: `Bearer ${credentials.token!}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify(command),

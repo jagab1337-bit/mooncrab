@@ -233,7 +233,8 @@ test('owner update storage failure does not report success', async () => {
   assert.equal(res.code, 503);
 });
 
-test('Redis adapter retains HTTPS verification and sends credentials only as a header', async () => {
+for (const [binding, credentials] of Object.entries({ direct: env, vercel: { KV_REST_API_URL: env.UPSTASH_REDIS_REST_URL, KV_REST_API_TOKEN: env.UPSTASH_REDIS_REST_TOKEN } })) {
+test(`${binding} Redis adapter retains HTTPS verification and sends credentials only as a header`, async () => {
   const originalFetch = globalThis.fetch;
   let requested = false;
   globalThis.fetch = async (input, init) => {
@@ -245,14 +246,29 @@ test('Redis adapter retains HTTPS verification and sends credentials only as a h
     return new Response(JSON.stringify({ result: '1' }), { status: 200 });
   };
   try {
-    assert.equal(await createRedisCommand(env)(['GET', 'test-key']), '1');
+    assert.equal(await createRedisCommand(credentials)(['GET', 'test-key']), '1');
     assert.equal(requested, true);
   } finally {
     globalThis.fetch = originalFetch;
   }
 });
 
+}
+
 test('insecure Redis URLs are rejected before sending credentials', async () => {
   const command = createRedisCommand({ ...env, UPSTASH_REDIS_REST_URL: 'http://calendar.example.invalid' });
+  await assert.rejects(() => command(['GET', 'test-key']), /not configured/);
+});
+
+test('native Vercel Redis bindings configure the public calendar', async () => {
+  const store = memoryCalendar(true, ['2026-11-20']);
+  const res = response();
+  await createAvailabilityHandler({ env: { KV_REST_API_URL: env.UPSTASH_REDIS_REST_URL, KV_REST_API_TOKEN: env.UPSTASH_REDIS_REST_TOKEN }, now, command: store.command })(request(), res);
+  assert.equal(res.code, 200);
+  assert.deepEqual((res.body as { blockedDates: string[] }).blockedDates, ['2026-11-20']);
+});
+
+test('insecure native Vercel Redis URL is rejected before sending credentials', async () => {
+  const command = createRedisCommand({ KV_REST_API_URL: 'http://calendar.example.invalid', KV_REST_API_TOKEN: 'test-token' });
   await assert.rejects(() => command(['GET', 'test-key']), /not configured/);
 });
