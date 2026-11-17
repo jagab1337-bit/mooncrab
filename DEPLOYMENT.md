@@ -25,4 +25,18 @@ Replace website parking records only; preserve mail/TXT and unrelated records. R
 
 ## Owner access
 
-Open `https://mooncrabsiargao.com/manage`. In Vercel → mooncrab → Settings → Environment Variables, reveal the production `BOOKING_ADMIN_TOKEN` and enter it in the owner access form. Never place it in a URL or share it with guests. The key is kept only in page memory. Check the owner dashboard regularly for stay requests; the site does not send automatic emails.
+Open `https://mooncrabsiargao.com/manage`. Sign in as `admin` using the supplied bootstrap password, then change it at first login. Only a scrypt hash is stored in the secret `ADMIN_BOOTSTRAP_PASSWORD_HASH`; the account/password changes persist in Redis. The existing `BOOKING_ADMIN_TOKEN` remains a private recovery key under the collapsed recovery option; never put it in a URL or share it with guests.
+
+`admin.mooncrabsiargao.com` is attached to Vercel with ownership verified, but DNS was missing when checked. The Cloud Spaceship session is signed out. Add this entry in Spaceship Advanced DNS, preserving all existing website and email records:
+
+| Type | Host | Value | TTL |
+| --- | --- | --- | --- |
+| CNAME | admin | cff3d388e8e2ced3.vercel-dns-017.com | 1 minute |
+
+Recheck Vercel Domains for valid DNS and HTTPS after saving. `/manage` on the primary domain remains the working owner entry point during setup.
+
+## Communications and imports
+
+Two protected daily schedules are configured: external calendar imports around 03:00 and email outbox draining around 03:15 Asia/Manila. Vercel Hobby schedules may run within their hourly window. `CRON_SECRET` is stored as a Vercel Secret. New requests also attempt email processing immediately after persistence; owner controls can run imports/drains manually.
+
+No private Airbnb/Booking.com feeds or Spacemail SMTP credentials have been supplied. Feed imports and actual email sending remain waiting for those values and sender verification. See [external calendars](docs/external-calendars.md) and [Spacemail](docs/transactional-email.md) for exact private variables and setup. SMTP acceptance is tracked separately from confirmed delivery. No actual test email has been sent yet.

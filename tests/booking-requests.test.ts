@@ -1,13 +1,24 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { createAdminBookingRequestsHandler, createBookingRequestHandler, requestExpiry, stayNights } from '../server/booking-requests.ts';
-import type { ApiRequest, Environment, RedisCommand } from '../server/availability.ts';
+import { createAdminBookingRequestsHandler, createBookingRequestHandler as realCreateBookingRequestHandler, CREATE_REQUEST_SCRIPT, requestExpiry, stayNights } from '../server/booking-requests.ts';
+import type { ApiRequest, Environment, RedisCommand, HandlerOptions } from '../server/availability.ts';
 
 const env: Environment = {
   UPSTASH_REDIS_REST_URL: 'https://calendar.example.invalid',
   UPSTASH_REDIS_REST_TOKEN: 'test-redis-token',
   BOOKING_ADMIN_TOKEN: 'test-admin-token',
 };
+// Older request mocks focus on booking commands; configuration and atomic record replies are explicit here.
+function createBookingRequestHandler(options: HandlerOptions = {}) {
+  const original=options.command;
+  return realCreateBookingRequestHandler({...options,...(original?{command:async(args)=>{
+    if(args[0]==='GET'&&args[1]==='mooncrab:business-settings')return null;
+    const result=await original(args);
+    if(args[0]==='EVAL'&&args[1]===CREATE_REQUEST_SCRIPT&&Array.isArray(result)&&result[0]==='created'&&result.length===2)return [...result,String(args[14])];
+    if(args[0]==='EVAL'&&args[1]===CREATE_REQUEST_SCRIPT&&Array.isArray(result)&&result[0]==='duplicate'&&result.length===2)return [...result,JSON.stringify(record)];
+    return result;
+  }}:{})});
+}
 const now = () => new Date('2026-11-17T18:00:00.000Z');
 const id = '371f802b-e248-4189-8b85-12b5a4664f33';
 const record = {
@@ -31,7 +42,7 @@ function request(overrides: Partial<ApiRequest> = {}): ApiRequest {
     method: 'POST', headers: { 'content-type': 'application/json' },
     body: {
       checkIn: '2026-11-20', checkOut: '2026-11-22', name: ' Test Guest ',
-      email: 'Guest@Example.com', idempotencyKey: id,
+      email: 'Guest@Example.com', phone:'+63 962 528 4264', whatsapp:true, room:'KASAG', idempotencyKey: id,
     },
     ...overrides,
   };
@@ -58,7 +69,7 @@ test('idempotency keys normalize UUID casing and share the request record retent
   await handler(request({ body: { ...base, idempotencyKey: key } }), response());
   await handler(request({ body: { ...base, idempotencyKey: key.toUpperCase() } }), response());
   assert.equal(commands[0][6], commands[1][6]);
-  assert.equal(commands[0][17], requestExpiry('2026-11-22'));
+  assert.equal(commands[0][20], requestExpiry('2026-11-22'));
 });
 
 test('valid guest request is normalized and accepted without exposing guest fields', async () => {
@@ -67,14 +78,15 @@ test('valid guest request is normalized and accepted without exposing guest fiel
   const res = response();
   await createBookingRequestHandler({ env, now, command })(request(), res);
   assert.equal(res.code, 201);
-  assert.deepEqual(res.body, { id, status: 'pending' });
-  const stored = JSON.parse(String(captured[11]));
+  assert.equal((res.body as {id:string}).id,id);
+  assert.equal((res.body as {status:string}).status,'pending');
+  const stored = JSON.parse(String(captured[14]));
   assert.equal(stored.name, 'Test Guest');
   assert.equal(stored.email, 'guest@example.com');
   assert.equal(stored.status, 'pending');
   assert.equal(stored.guests, 2);
   assert.equal(stored.extraGuestFeePhp, 0);
-  assert.deepEqual(JSON.parse(String(captured[12])), ['2026-11-20', '2026-11-21']);
+  assert.deepEqual(JSON.parse(String(captured[15])), ['2026-11-20', '2026-11-21']);
   assert.equal(res.headers['cache-control'], 'no-store');
 });
 
@@ -92,7 +104,7 @@ test('guest counts must be integers from one to three before storage is called',
 
 test('third-guest supplement is computed per occupied night and ignores client fee overrides', async () => {
   const records: Array<Record<string, unknown>> = [];
-  const handler = createBookingRequestHandler({ env, now, command: async (args) => { records.push(JSON.parse(String(args[11]))); return ['created', id]; } });
+  const handler = createBookingRequestHandler({ env, now, command: async (args) => { records.push(JSON.parse(String(args[14]))); return ['created', id]; } });
   const base = request().body as Record<string, unknown>;
   for (const [guests, checkOut, expectedFee] of [[1, '2026-11-22', 0], [2, '2026-11-22', 0], [3, '2026-11-22', 1000], [3, '2026-11-25', 2500]] as const) {
     const res = response();
@@ -100,13 +112,14 @@ test('third-guest supplement is computed per occupied night and ignores client f
     assert.equal(res.code, 201);
     assert.equal(records.at(-1)?.guests, guests);
     assert.equal(records.at(-1)?.extraGuestFeePhp, expectedFee);
-    assert.deepEqual(res.body, { id, status: 'pending' });
+    assert.equal((res.body as {id:string}).id,id);
+  assert.equal((res.body as {status:string}).status,'pending');
   }
 });
 
 test('retry digests distinguish occupancy changes while defaulting old clients to two guests', async () => {
   const digests: string[] = [];
-  const handler = createBookingRequestHandler({ env, now, command: async (args) => { digests.push(String(args[14])); return ['created', id]; } });
+  const handler = createBookingRequestHandler({ env, now, command: async (args) => { digests.push(String(args[17])); return ['created', id]; } });
   const base = request().body as Record<string, unknown>;
   await handler(request(), response());
   await handler(request({ body: { ...base, guests: 2 } }), response());
@@ -132,7 +145,7 @@ test('request rate-limit keys hash the guest email and trusted forwarded IP', as
 test('guest request rejects invalid dates, range, identity, and oversized fields without storage writes', async () => {
   const changes = [
     { checkIn: '2026-11-17' }, { checkOut: '2026-11-20' },
-    { checkIn: '2026-02-30' }, { checkOut: '2026-12-21' }, { checkOut: '2028-11-01' },
+    { checkIn: '2026-02-30' }, { checkOut: '2027-02-20' }, { checkOut: '2028-11-01' },
     { name: 'A' }, { email: 'bad-email' }, { idempotencyKey: 'not-a-uuid' },
     { message: 'x'.repeat(2001) }, { name: 'x'.repeat(101) }, { message: '\u0000' },
   ];
@@ -148,13 +161,14 @@ test('guest request rejects invalid dates, range, identity, and oversized fields
   assert.equal(calls, 0);
 });
 
-test('guest date boundaries accept a two-night stay today and 30 nights but reject 31 nights and checkout beyond the horizon', async () => {
+test('guest date boundaries accept a two-night stay today and 90 nights but reject 91 nights and checkout beyond the horizon', async () => {
   const handler = createBookingRequestHandler({ env, now, command: async () => ['created', id] });
   const base = request().body as Record<string, unknown>;
   for (const [checkIn, checkOut, code] of [
     ['2026-11-18', '2026-11-20', 201],
     ['2026-11-18', '2026-12-18', 201],
-    ['2026-11-18', '2026-12-19', 400],
+    ['2026-11-18', '2027-02-16', 201],
+    ['2026-11-18', '2027-02-17', 400],
     ['2028-10-29', '2028-10-31', 201],
     ['2028-10-31', '2028-11-01', 400],
   ] as const) {
@@ -171,7 +185,7 @@ test('one-night requests are rejected before storage while two-night requests ar
   const tooShort = response();
   await handler(request({ body: { ...base, checkOut: '2026-11-21' } }), tooShort);
   assert.equal(tooShort.code, 400);
-  assert.match(String((tooShort.body as { error: string }).error), /2–30 nights/);
+  assert.match(String((tooShort.body as { error: string }).error), /2–90 nights/);
   assert.equal(calls, 0);
   const accepted = response();
   await handler(request(), accepted);
@@ -251,8 +265,8 @@ test('owner confirmation submits an atomic action for the correct occupied night
   assert.equal(res.code, 200);
   assert.deepEqual(res.body, { request: confirmed });
   assert.equal(commands[1][0], 'EVAL');
-  assert.equal(commands[1][7], 'confirm');
-  assert.deepEqual(JSON.parse(String(commands[1][8])), ['2026-11-20', '2026-11-21']);
+  assert.equal(commands[1][8], 'confirm');
+  assert.deepEqual(JSON.parse(String(commands[1][9])), ['2026-11-20', '2026-11-21']);
 });
 
 test('owner receives conflict when another confirmed stay won the dates', async () => {
@@ -300,6 +314,6 @@ test('owner can atomically cancel a confirmed stay without changing request expi
   await handler(adminRequest({ method: 'PATCH', body: { id, action: 'cancel' } }), res);
   assert.equal(res.code, 200);
   assert.deepEqual(res.body, { request: cancelled });
-  assert.equal(commands[1][7], 'cancel');
-  assert.equal(commands[1][10], requestExpiry(record.checkOut));
+  assert.equal(commands[1][8], 'cancel');
+  assert.equal(commands[1][11], requestExpiry(record.checkOut));
 });

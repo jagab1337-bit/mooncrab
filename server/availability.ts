@@ -1,4 +1,5 @@
 import { createHash, timingSafeEqual } from 'node:crypto';
+import { authorizeAdmin } from './admin-auth.ts';
 
 export interface ApiRequest {
   method?: string;
@@ -25,6 +26,7 @@ export interface HandlerOptions {
 export const ROOM = 'KASAG';
 export const BLOCKED_KEY = 'mooncrab:blocked-dates';
 export const CONFIRMED_KEY = 'mooncrab:confirmed-dates';
+export const IMPORTED_KEY = 'mooncrab:imported-dates';
 export const INITIALIZED_KEY = 'mooncrab:availability-initialized';
 const UNAVAILABLE = 'The booking calendar is temporarily unavailable. Please check back soon.';
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
@@ -105,7 +107,7 @@ export function unavailable(res: ApiResponse): void {
 async function readCalendar(command: RedisCommand): Promise<{ initialized: boolean; blockedDates: string[] }> {
   const [initialized, dates] = await Promise.all([
     command(['GET', INITIALIZED_KEY]),
-    command(['SUNION', BLOCKED_KEY, CONFIRMED_KEY]),
+    command(['SUNION', BLOCKED_KEY, CONFIRMED_KEY, IMPORTED_KEY]),
   ]);
   if (!Array.isArray(dates) || dates.some((date) => !isValidDate(date))) {
     throw new Error('Invalid calendar storage data');
@@ -203,7 +205,7 @@ export function createAdminAvailabilityHandler(options: HandlerOptions = {}) {
       res.status(405).json({ error: 'Method not allowed.' });
       return;
     }
-    if (!authorized(req, env)) {
+    if (!await authorizeAdmin(req, env, command)) {
       res.status(401).json({ error: 'Unauthorized.' });
       return;
     }
@@ -229,7 +231,9 @@ export function createAdminAvailabilityHandler(options: HandlerOptions = {}) {
         ]);
       }
       const calendar = await readCalendar(command);
-      res.status(200).json({ room: ROOM, ...calendar });
+      const categories = await Promise.all([BLOCKED_KEY, CONFIRMED_KEY, IMPORTED_KEY].map(key => command(['SMEMBERS', key])));
+      if (categories.some(dates => !Array.isArray(dates) || dates.some(date => !isValidDate(date)))) throw new Error('Invalid calendar categories');
+      res.status(200).json({ room: ROOM, ...calendar, manualDates: (categories[0] as string[]).sort(), confirmedDates: (categories[1] as string[]).sort(), importedDates: (categories[2] as string[]).sort() });
     } catch {
       unavailable(res);
     }

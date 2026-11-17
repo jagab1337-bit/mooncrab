@@ -1,4 +1,14 @@
 import { test, expect, type Page } from '@playwright/test';
+import { DEFAULT_CONFIG } from '../../src/business.ts';
+import { calculatePricing, nightsBetween } from '../../shared/pricing.ts';
+
+test.beforeEach(async ({page}) => {
+  await page.route('**/api/config', route => route.fulfill({json: DEFAULT_CONFIG}));
+  await page.route('**/api/quote?*', route => {
+    const query=new URL(route.request().url()).searchParams;
+    return route.fulfill({json:{pricing:calculatePricing(nightsBetween(query.get('checkIn')!,query.get('checkOut')!),Number(query.get('guests')))}});
+  });
+});
 
 const now = new Date();
 const future = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1));
@@ -67,7 +77,7 @@ test('sends a pending request with actual selected dates, not a confirmed bookin
   let payload: Record<string, unknown> = {};
   await page.route('**/api/booking-requests', async route => {
     payload = route.request().postDataJSON();
-    await route.fulfill({ status: 201, json: { id: 'test-reference', status: 'pending' } });
+    await route.fulfill({ status: 201, json: { id: 'test-reference', status: 'pending', room:'KASAG',checkIn:date(10),checkOut:date(13),guests:3,pricing:calculatePricing(3,3) } });
   });
   await calendar(page);
   await day(page, 10).click(); await day(page, 13).click();
@@ -75,11 +85,15 @@ test('sends a pending request with actual selected dates, not a confirmed bookin
   await expect(page.locator('#guest-charge')).toContainText('₱1,500');
   await page.getByLabel('Your name').fill('Island Guest');
   await page.getByLabel('Email address').fill('guest@example.com');
+  await page.getByLabel('Phone or WhatsApp number').fill('9171234567');
   await page.getByLabel('A note for your host').fill('Looking forward to Siargao.');
-  await page.getByRole('checkbox').check();
+  await page.getByRole('checkbox', {name:'I agree to share these details'}).check();
   await page.getByRole('button', { name: 'Request this stay' }).click();
   await expect(page.locator('#request-status')).toContainText('Your room is not reserved until confirmed');
-  expect(payload).toMatchObject({ checkIn: date(10), checkOut: date(13), guests: 3, name: 'Island Guest', email: 'guest@example.com' });
+  await expect(page.getByRole('dialog')).toContainText('Thank you for reaching out, Island!');
+  await expect(page.getByRole('dialog')).toContainText('Estimated total: ₱5,400');
+  await expect(page.getByRole('dialog')).toContainText('Your reservation is not yet confirmed');
+  expect(payload).toMatchObject({ checkIn: date(10), checkOut: date(13), guests: 3, name: 'Island Guest', email: 'guest@example.com',phone:'+639171234567',whatsapp:true,room:'KASAG' });
 });
 test('owner must verify existing reservations before publishing; key is not persisted', async ({ page }) => {
   let initialized = false;
@@ -92,6 +106,7 @@ test('owner must verify existing reservations before publishing; key is not pers
   });
   await page.route('**/api/admin/booking-requests', route => route.fulfill({ json: { requests: [] } }));
   await page.goto('/manage');
+  await page.getByText('Use a private recovery key').click();
   await page.getByLabel('Calendar access key').fill('test-owner-key');
   await page.getByRole('button', { name: 'Unlock calendar' }).click();
   await expect(page.locator('#owner-calendar-area')).toBeVisible();
@@ -123,6 +138,7 @@ test('owner cancellation requires guest agreement and sends the intended action'
     else await route.fulfill({ json: { requests: [booking()] } });
   });
   await page.goto('/manage');
+  await page.getByText('Use a private recovery key').click();
   await page.getByLabel('Calendar access key').fill('test-owner-key');
   await page.getByRole('button', { name: 'Unlock calendar' }).click();
   const cancel = page.getByRole('button', { name: 'Cancel confirmed stay' });
@@ -147,6 +163,7 @@ test('owner reviews occupancy and verifies the manual deposit before confirming'
     else await route.fulfill({ json: { requests: [booking()] } });
   });
   await page.goto('/manage');
+  await page.getByText('Use a private recovery key').click();
   await page.getByLabel('Calendar access key').fill('test-owner-key');
   await page.getByRole('button', { name: 'Unlock calendar' }).click();
   await expect(page.locator('.owner-request-guests')).toHaveText('3 guests · PHP 1,000 extra guest fee (PHP 500/night)');

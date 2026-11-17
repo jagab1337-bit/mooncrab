@@ -1,0 +1,42 @@
+[
+  {
+    "asset": "qr-booking.png",
+    "destination": "https://booking.mooncrabsiargao.com/",
+    "size": [
+      370,
+      370
+    ],
+    "quiet_zone_modules": 4,
+    "verified_at_display_size_px": 80
+  },
+  {
+    "asset": "qr-whatsapp.png",
+    "destination": "https://wa.me/639625284264",
+    "size": [
+      370,
+      370
+    ],
+    "quiet_zone_modules": 4,
+    "verified_at_display_size_px": 80
+  },
+  {
+    "asset": "qr-instagram.png",
+    "destination": "https://www.instagram.com/mooncrabhosteliao/",
+    "size": [
+      410,
+      410
+    ],
+    "quiet_zone_modules": 4,
+    "verified_at_display_size_px": 80
+  },
+  {
+    "asset": "qr-maps.png",
+    "destination": "https://maps.app.goo.gl/RwCRdtYfqmGDei1e8",
+    "size": [
+      370,
+      370
+    ],
+    "quiet_zone_modules": 4,
+    "verified_at_display_size_px": 80
+  }
+]

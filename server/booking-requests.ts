@@ -1,14 +1,20 @@
 import { createHash, randomUUID } from 'node:crypto';
 import {
-  authorized, BLOCKED_KEY, CONFIRMED_KEY, configured, createRedisCommand,
+  BLOCKED_KEY, CONFIRMED_KEY, IMPORTED_KEY, configured, createRedisCommand,
   INITIALIZED_KEY, isValidDate, monthRange, setHeaders, unavailable,
 } from './availability.ts';
 import type { ApiRequest, ApiResponse, HandlerOptions } from './availability.ts';
+import { authorizeAdmin } from './admin-auth.ts';
+import { normalizePhone, readBusinessSettings } from './business-settings.ts';
+import { calculatePricing } from '../shared/pricing.ts';
+import type { PricingSnapshot } from '../shared/pricing.ts';
+import { prepareBookingEmailJobs, processBookingEmails, EMAIL_OUTBOX_INDEX, EMAIL_PENDING_KEY } from './email-outbox.ts';
+import { calendarSyncStatus } from './external-calendars.ts';
 
 const REQUEST_PREFIX = 'mooncrab:request:';
 const REQUEST_INDEX = 'mooncrab:requests';
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const EMAIL = /^[A-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Z0-9](?:[A-Z0-9-]*[A-Z0-9])?(?:\.[A-Z0-9](?:[A-Z0-9-]*[A-Z0-9])?)+$/i;
 
 export interface BookingRequest {
   id: string;
@@ -16,6 +22,10 @@ export interface BookingRequest {
   checkOut: string;
   name: string;
   email: string;
+  phone?: string;
+  whatsapp?: boolean;
+  room?: 'KASAG';
+  pricing?: PricingSnapshot;
   message: string;
   guests: number;
   extraGuestFeePhp: number;
@@ -26,12 +36,13 @@ export interface BookingRequest {
 
 interface ValidRequest {
   checkIn: string; checkOut: string; name: string; email: string;
+  phone: string; whatsapp: boolean; room: 'KASAG';
   message: string; guests: number; extraGuestFeePhp: number; idempotencyKey: string; nights: string[];
 }
 
 export function stayNights(checkIn: string, checkOut: string): string[] {
   const nights: string[] = [];
-  for (let time = Date.parse(`${checkIn}T00:00:00Z`); time < Date.parse(`${checkOut}T00:00:00Z`) && nights.length <= 30; time += 86_400_000) {
+  for (let time = Date.parse(`${checkIn}T00:00:00Z`); time < Date.parse(`${checkOut}T00:00:00Z`) && nights.length <= 90; time += 86_400_000) {
     nights.push(new Date(time).toISOString().slice(0, 10));
   }
   return nights;
@@ -45,7 +56,7 @@ function parseRequest(body: unknown, now: Date): ValidRequest | null {
   const range = monthRange(now);
   if (checkIn < range.today || checkOut > range.lastDate) return null;
   const nights = stayNights(checkIn, checkOut);
-  if (nights.length < 2 || nights.length > 30) return null;
+  if (nights.length < 2 || nights.length > 90 || value.room !== 'KASAG') return null;
   const guests = value.guests === undefined ? 2 : value.guests;
   if (typeof guests !== 'number' || !Number.isInteger(guests) || guests < 1 || guests > 3) return null;
   const extraGuestFeePhp = guests === 3 ? nights.length * 500 : 0;
@@ -53,11 +64,13 @@ function parseRequest(body: unknown, now: Date): ValidRequest | null {
   if (typeof value.name !== 'string' || typeof value.email !== 'string') return null;
   const name = value.name.trim();
   const email = value.email.trim().toLowerCase();
+  const phone = normalizePhone(value.phone);
+  if (!phone || typeof value.whatsapp !== 'boolean') return null;
   const message = value.message === undefined ? '' : value.message;
   if (name.length < 2 || name.length > 100 || /[\u0000-\u001f]/.test(name)) return null;
   if (email.length > 254 || !EMAIL.test(email)) return null;
   if (typeof message !== 'string' || message.length > 2000 || /[\u0000-\u0008\u000b\u000c\u000e-\u001f]/.test(message)) return null;
-  return { checkIn, checkOut, name, email, message: message.trim(), guests, extraGuestFeePhp, idempotencyKey: idempotencyKey.toLowerCase(), nights };
+  return { checkIn, checkOut, name, email, phone, whatsapp:value.whatsapp, room:'KASAG', message: message.trim(), guests, extraGuestFeePhp, idempotencyKey: idempotencyKey.toLowerCase(), nights };
 }
 
 export function requestExpiry(checkOut: string): number {
@@ -83,7 +96,21 @@ function safeRecord(value: unknown): BookingRequest {
   const extraGuestFeePhp = guests === 3 ? stayNights(record.checkIn, record.checkOut).length * 500 : 0;
   // Return only the intentional owner-facing fields, never internal digests.
   const { id, checkIn, checkOut, name, email, message, status, createdAt, updatedAt } = record;
-  return { id, checkIn, checkOut, name, email, message, guests, extraGuestFeePhp, status, createdAt, updatedAt };
+  const optional: Partial<BookingRequest> = {};
+  if (record.phone !== undefined) {
+    if (!normalizePhone(record.phone) || typeof record.whatsapp !== 'boolean' || record.room !== 'KASAG') throw new Error('Invalid contact record');
+    optional.phone=record.phone;optional.whatsapp=record.whatsapp;optional.room='KASAG';
+  }
+  if (record.pricing !== undefined) {
+    const p=record.pricing;
+    const recomputed=calculatePricing(stayNights(checkIn,checkOut).length,guests,p.rates,p.calculatedAt);
+    const numericFields=['nights','guests','monthlyPackages','weeklyPackages','additionalNights','roomSubtotalPhp','extraGuestFeePhp','totalPhp','depositPhp'] as const;
+    if (p.currency!=='PHP'||p.room!=='KASAG'||typeof p.calculatedAt!=='string'||Number.isNaN(Date.parse(p.calculatedAt))
+      ||numericFields.some(key=>p[key]!==recomputed[key])||!Array.isArray(p.lineItems)||p.lineItems.length!==recomputed.lineItems.length
+      ||p.lineItems.some((line,index)=>Object.keys(recomputed.lineItems[index]).some(key=>line[key as keyof typeof line]!==recomputed.lineItems[index][key as keyof typeof line]))) throw new Error('Invalid stored pricing');
+    optional.pricing=recomputed;
+  }
+  return { id, checkIn, checkOut, name, email, message, guests, extraGuestFeePhp, status, createdAt, updatedAt, ...optional };
 }
 
 export const CREATE_REQUEST_SCRIPT = `
@@ -92,11 +119,11 @@ local previous = redis.call('GET', KEYS[4])
 if previous then
   local prior = cjson.decode(previous)
   if prior.digest ~= ARGV[4] then return {'idempotency_conflict'} end
-  return {'duplicate', prior.id}
+  return {'duplicate', prior.id, redis.call('GET', 'mooncrab:request:' .. prior.id) or ''}
 end
 local dates = cjson.decode(ARGV[2])
 for _, date in ipairs(dates) do
-  if redis.call('SISMEMBER', KEYS[2], date) == 1 or redis.call('SISMEMBER', KEYS[3], date) == 1 then return {'conflict'} end
+  if redis.call('SISMEMBER', KEYS[2], date) == 1 or redis.call('SISMEMBER', KEYS[3], date) == 1 or redis.call('SISMEMBER', KEYS[9], date) == 1 then return {'conflict'} end
 end
 if tonumber(redis.call('GET', KEYS[7]) or '0') >= 5 then return {'rate_limited'} end
 if ARGV[6] == '1' and tonumber(redis.call('GET', KEYS[8]) or '0') >= 20 then return {'rate_limited'} end
@@ -108,7 +135,15 @@ redis.call('EXPIREAT', KEYS[5], ARGV[7])
 redis.call('ZADD', KEYS[6], ARGV[3], ARGV[5])
 redis.call('SET', KEYS[4], cjson.encode({id=ARGV[5], digest=ARGV[4]}))
 redis.call('EXPIREAT', KEYS[4], ARGV[7])
-return {'created', ARGV[5]}
+local jobs = cjson.decode(ARGV[8])
+for _, job in ipairs(jobs) do
+  local jobKey = 'mooncrab:email-job:' .. job.id
+  redis.call('SET', jobKey, cjson.encode(job), 'NX')
+  redis.call('EXPIREAT', jobKey, job.expiresAtUnix)
+  redis.call('ZADD', KEYS[10], ARGV[3], job.id)
+  redis.call('ZADD', KEYS[11], ARGV[3], job.id)
+end
+return {'created', ARGV[5], ARGV[1]}
 `;
 
 export const LIST_REQUESTS_SCRIPT = `
@@ -139,7 +174,7 @@ if #dates == 0 then return {'invalid_record'} end
 if ARGV[1] == 'confirm' then
   if redis.call('GET', KEYS[4]) ~= '1' then return {'unavailable'} end
   for _, date in ipairs(dates) do
-    if redis.call('SISMEMBER', KEYS[2], date) == 1 or redis.call('SISMEMBER', KEYS[3], date) == 1 then return {'conflict'} end
+    if redis.call('SISMEMBER', KEYS[2], date) == 1 or redis.call('SISMEMBER', KEYS[3], date) == 1 or redis.call('SISMEMBER', KEYS[5], date) == 1 then return {'conflict'} end
   end
   for _, date in ipairs(dates) do redis.call('SADD', KEYS[3], date) end
   record.status = 'confirmed'
@@ -179,16 +214,20 @@ export function createBookingRequestHandler(options: HandlerOptions = {}) {
     const currentTime = now();
     const input = parseRequest(req.body, currentTime);
     if (!input) {
-      res.status(400).json({ error: 'Enter valid details for 1–3 guests and a stay of 2–30 nights within the next 24 months.' });
+      res.status(400).json({ error: 'Enter your full name, valid email and international phone, KASAG, 1–3 guests, and a stay of 2–90 nights within the next 24 months.' });
       return;
     }
     if (!configured(env)) { unavailable(res); return; }
     try {
+      const settings = await readBusinessSettings(command);
+      if(input.nights.length<settings.pricing.minimumNights||input.nights.length>settings.pricing.maxNights){res.status(400).json({error:`Choose a stay of ${settings.pricing.minimumNights}–${settings.pricing.maxNights} nights.`});return;}
+      const pricing=calculatePricing(input.nights.length,input.guests,settings.pricing,currentTime.toISOString());
       const id = randomUUID();
       const timestamp = currentTime.toISOString();
       const record: BookingRequest = {
         id, checkIn: input.checkIn, checkOut: input.checkOut,
         name: input.name, email: input.email, message: input.message,
+        phone:input.phone, whatsapp:input.whatsapp,room:'KASAG',pricing,
         guests: input.guests, extraGuestFeePhp: input.extraGuestFeePhp,
         status: 'pending', createdAt: timestamp, updatedAt: timestamp,
       };
@@ -196,20 +235,30 @@ export function createBookingRequestHandler(options: HandlerOptions = {}) {
       const forwarded = req.headers['x-vercel-forwarded-for'];
       const ip = typeof forwarded === 'string' ? forwarded.split(',')[0].trim().slice(0, 100) : '';
       const hour = Math.floor(currentTime.getTime() / 3_600_000);
-      const digest = hash(JSON.stringify({ ...record, id: undefined, createdAt: undefined, updatedAt: undefined }));
+      // Rates may change between retries; idempotency identifies guest intent, not the new quote.
+      const digest = hash(JSON.stringify({ ...record, id: undefined, createdAt: undefined, updatedAt: undefined, pricing:undefined }));
       const result = resultArray(await command([
-        'EVAL', CREATE_REQUEST_SCRIPT, 8,
+        'EVAL', CREATE_REQUEST_SCRIPT, 11,
         INITIALIZED_KEY, BLOCKED_KEY, CONFIRMED_KEY,
         `mooncrab:idempotency:${input.idempotencyKey}`, `${REQUEST_PREFIX}${id}`, REQUEST_INDEX,
         `mooncrab:rate:email:${hour}:${hash(input.email)}`,
         `mooncrab:rate:ip:${hour}:${hash(ip)}`,
+        IMPORTED_KEY,
+        EMAIL_OUTBOX_INDEX,EMAIL_PENDING_KEY,
         JSON.stringify(record), JSON.stringify(input.nights), currentTime.getTime(), digest, id, ip ? '1' : '0', requestExpiry(input.checkOut),
+        JSON.stringify(prepareBookingEmailJobs(record,currentTime)),
       ]));
       switch (result[0]) {
         case 'created':
-        case 'duplicate':
-          res.status(result[0] === 'created' ? 201 : 200).json({ id: result[1], status: 'pending' });
+        case 'duplicate': {
+          const saved = safeRecord(result[2]);
+          if(result[0]==='created') {
+            // Queue persistence is atomic with the booking. SMTP failures never roll it back.
+            try {await processBookingEmails(saved.id,{env,command,now});} catch { /* Retry through the durable outbox. */ }
+          }
+          res.status(result[0] === 'created' ? 201 : 200).json({ id: result[1], status: saved.status, room:saved.room??'KASAG', checkIn:saved.checkIn,checkOut:saved.checkOut,guests:saved.guests,nights:stayNights(saved.checkIn,saved.checkOut).length,pricing:saved.pricing });
           return;
+        }
         case 'conflict':
           res.status(409).json({ error: 'Those dates are no longer available. Please choose another stay.' });
           return;
@@ -237,7 +286,7 @@ export function createAdminBookingRequestsHandler(options: HandlerOptions = {}) 
       res.status(405).json({ error: 'Method not allowed.' });
       return;
     }
-    if (!authorized(req, env)) { res.status(401).json({ error: 'Unauthorized.' }); return; }
+    if (!await authorizeAdmin(req, env, command)) { res.status(401).json({ error: 'Unauthorized.' }); return; }
     if (!configured(env)) { unavailable(res); return; }
     try {
       if (req.method === 'GET') {
@@ -259,10 +308,16 @@ export function createAdminBookingRequestsHandler(options: HandlerOptions = {}) 
         res.status(409).json({ error: 'This stay has already started. Contact the guest to arrange new dates.' });
         return;
       }
+      if(body.action==='confirm'&&(env.AIRBNB_ICAL_URL||env.BOOKING_COM_ICAL_URL)){
+        const sync=await calendarSyncStatus(command,env,now());
+        if(sync.sources.some(source=>source.configured&&(source.stale||source.error))){
+          res.status(409).json({error:'Sync the configured external calendars successfully before confirming this stay. Existing blocks remain protected.'});return;
+        }
+      }
       const nights = stayNights(record.checkIn, record.checkOut);
-      if (!nights.length || nights.length > 30) { unavailable(res); return; }
+      if (!nights.length || nights.length > 90) { unavailable(res); return; }
       const result = resultArray(await command([
-        'EVAL', ACTION_REQUEST_SCRIPT, 4, key, BLOCKED_KEY, CONFIRMED_KEY, INITIALIZED_KEY,
+        'EVAL', ACTION_REQUEST_SCRIPT, 5, key, BLOCKED_KEY, CONFIRMED_KEY, INITIALIZED_KEY, IMPORTED_KEY,
         body.action, JSON.stringify(nights), now().toISOString(), requestExpiry(record.checkOut),
       ]));
       switch (result[0]) {

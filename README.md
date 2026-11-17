@@ -1,79 +1,55 @@
 # Mooncrab Siargao
 
-Production website: https://mooncrab.vercel.app. See [DEPLOYMENT.md](DEPLOYMENT.md) for domain DNS and owner-provided calendar rules.
+https://mooncrabsiargao.com · https://booking.mooncrabsiargao.com
 
-Responsive Vite/TypeScript website for KASAG, Mooncrab’s single room, with a guest booking calendar and an authenticated owner dashboard. Self-hosted typography; no third-party frontend scripts. Vercel Node functions persist availability and stay requests in Upstash Redis.
+Existing Vite/TypeScript website and Vercel Node 24 functions for **KASAG**, Mooncrab’s only room. Availability, guest requests, pricing, owner sessions, imported dates, and email jobs persist in the existing free Upstash Redis store in Singapore.
 
-## Run locally
-
-Use Node 24 and the existing checkout; each cloud task is isolated, so no worktree is needed.
+## Develop and verify
 
 ```sh
-cd /workspace/mooncrab
-npm ci --cache /workspace/.cache/npm
-npm run dev -- --port 3000 --strictPort
+npm ci
+npm run dev -- --port 3000
+npm test
+npm run test:e2e
+npm run build
 ```
 
-The Vite development plugin serves the same `/api` handlers used on Vercel. Optional local credentials go in ignored `.env.local` (see `.env.example`), never in source. Restart the dev server after updating them. Without storage credentials the calendar honestly returns HTTP 503 and disables requests; it does not manufacture available dates.
+The Vite API plugin uses the same handlers as production. Copy `.env.example` to ignored `.env.local` for local server credentials. Never use `VITE_` for secrets. Browser tests use Chromium at `/usr/bin/chromium`, or `CHROMIUM_PATH`. Build output includes static content/metadata for all nine travel-guide routes; JavaScript enhances these into the interactive journal.
 
-```sh
-npm test                 # Backend validation/auth/date-boundary tests
-npm run test:e2e         # Chromium frontend tests; fixture API responses
-npm run build            # TypeScript + production asset build
-```
+## Guest experience
 
-Browser tests use `/usr/bin/chromium`, or override `CHROMIUM_PATH`. The production API is tested separately from browser fixtures. Passing local tests does not establish a live database connection, DNS configuration, or successful deployment.
+- `/`: property photographs, rates, guest perks, exact Google Maps location, house rules, travel previews, honest review invitation, social gallery, and complete contacts.
+- `/booking` and the booking subdomain: live calendar, immediate price breakdown, international phone validation, and a pending stay request followed by a WhatsApp-led next-step dialog.
+- `/explore-siargao` and eight destination articles: original travel writing, verified road/boat directions from Mooncrab’s exact pin, authentic licensed photographs, credits, related guides, metadata, and structured data.
+- `/email-signature/`: reusable HTML signature, QR codes, offline previews, installation instructions and downloadable package.
+- Photographs open in an accessible viewer with full frames, original pixel dimensions, keyboard controls and direct full-image links. Display thumbnails are separate optimized assets.
 
-## Pages
+## Booking and pricing
 
-- `/` — property website.
-- `/booking` — KASAG’s public calendar and stay request form.
-- `/manage` — owner access; the access key stays in page memory and is erased on lock/navigation. This path is not linked in public navigation. Authentication is enforced server-side.
-- The root of `booking.mooncrabsiargao.com` automatically renders the booking page. Links from `mooncrabsiargao.com` go to that booking subdomain; local and preview deployments use `/booking`.
+Two-night minimum, up to 90 nights; check-in 2 PM/check-out 11 AM in Asia/Manila. Two guests are included, maximum three; the third guest adds PHP 500 per occupied night. The owner supplied rates of PHP 1,300/night, PHP 8,000/seven nights, and PHP 30,000/30 nights. The calculator chooses the lowest total using eligible complete packages and remaining nightly rates; it never rounds a shorter stay up into a package. Admin rates and eligibility settings persist; each request retains its server-calculated pricing snapshot. See [pricing policy](docs/PRICING.md).
 
-## Deploy to Vercel
+**A request does not hold or confirm the room.** Agree the final total, send the private personal-bank receiving QR/details, verify the 50% deposit actually credited, then confirm in the owner dashboard. No bank QR/details are published. No card checkout, automatic payment verification, refund processing or paid status is implemented.
 
-1. Import the `jagab1337-bit/mooncrab` GitHub repository into your Vercel account (Vite framework, Node 24). `vercel.json` supplies build/output settings, routing, and security headers. Alternatively use an authenticated Vercel CLI from this directory.
-2. Create or connect an **Upstash Redis** store in Vercel’s storage integrations. The native integration supplies server-side `KV_REST_API_URL` and `KV_REST_API_TOKEN` automatically. Direct Upstash names `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` are also supported. Set `BOOKING_ADMIN_TOKEN` to a unique strong randomly generated owner key in Vercel’s environment settings. Never use `VITE_` for any secret. Use separate databases and owner keys for production and previews.
-3. Deploy. Add `mooncrabsiargao.com`, `www.mooncrabsiargao.com`, and `booking.mooncrabsiargao.com` to this same Vercel project. At your domain provider, use the **exact DNS values Vercel displays** for each name; preserve existing email/other records. Verify domain ownership and TLS in Vercel. No DNS changes have been made by this source code.
-4. Open `/manage`, unlock with your owner key, and block all existing reservations for the coming 24 calendar months. Dates are in **Asia/Manila**. Only after reconciling existing bookings, check the explicit publication checkbox and save. Even a connected empty database stays closed to guests until this step is completed.
-5. Verify live availability, submit a clearly identified test request, view it in the owner dashboard, and decline it. Confirm that the main domain and booking subdomain both load over HTTPS. Do not accept live reservations until these checks succeed.
+Confirmation atomically rechecks manual, confirmed and imported blocked nights. Cancellation releases only that direct stay’s confirmed nights. Existing manual blocks remain. The calendar is initialized and remains blocked through December 16, 2026, reopening December 17. Do not rerun initialization or replace its saved state.
 
-Cloud outbound network access and Vercel authentication are separate. The draft has requested `api.vercel.com`, `vercel.com`, `auth.vercel.com`, and photo-source destinations; saving a draft alone does not apply network policy. Vercel runtime access to Upstash is configured independently from the development machine.
+## Owner access
 
-## Booking operations
+Use https://mooncrabsiargao.com/manage; `admin.mooncrabsiargao.com` routes to the same dashboard once its DNS is set. Username is `admin`; the supplied bootstrap password is stored only as a secure hash and must be changed after first login. Sessions use 8-hour, HttpOnly, Secure, SameSite cookies; login attempts are limited and mutations check Origin. The existing private bearer key remains available as a recovery/API option.
 
-KASAG is the only inventory item. Public users see only blocked dates; guest identity is never exposed by availability APIs. Check-in is occupied, check-out is not. Stay requests cover 2–30 nights within the published calendar horizon.
+The dashboard supports date ranges, manual/confirmed/imported indicators, pending inquiries, stored guest/phone/price details, deposit verification before confirmation, pricing/contact controls, password changes, calendar connection status, and safe email retries. Never share the owner key with guests.
 
-**A request is not a reservation or date hold.** The host reviews incoming requests in `/manage`, contacts the guest by email, agrees the rate and other stay details, then confirms. No payment or automatic email delivery is implemented. Check the dashboard regularly; it is the source of incoming requests. The host must manually notify guests of approval, decline, or cancellation.
+## Integrations
 
-Confirmation atomically rechecks and blocks every occupied night. Two overlapping requests cannot both be confirmed. Manual blocked dates and confirmed nights are stored separately: reopening a manually blocked date cannot accidentally reopen a confirmed stay. Reservations from other channels must be blocked here manually; there is no external calendar synchronization.
+[Deployment and DNS](DEPLOYMENT.md) · [Spacemail and durable email outbox](docs/transactional-email.md) · [External iCal imports](docs/external-calendars.md)
 
-The public request endpoint validates guest input and rate-limits submissions using hashes of email and Vercel’s trusted forwarded IP when present. Guest request records and retry markers expire 90 days after check-out. Owner API calls require the private bearer key. Do not share it with guests. Refresh availability before relying on the current calendar.
+Successful creation atomically stores a pending request and two email jobs. SMTP sending is attempted only with a verified Spacemail alias and private SMTP configuration. Missing email configuration preserves queued jobs and the booking. Accepted by SMTP does not mean delivered. Two free daily cron jobs process pending email and configured calendar feeds; admin controls can run them manually.
 
-For a confirmed-stay cancellation, agree the cancellation with the guest and notify them directly, then use the guarded cancellation action on the owner dashboard. Only the cancelled stay’s confirmed nights are released; manual blocks remain. No refund or cancellation email is sent by this site.
+Airbnb and Booking.com buttons use the owner’s exact listing URLs. Public review retrieval was unavailable, so no review text/ratings were invented. Calendar synchronization is import-only and periodic, requires private feed URLs, and is not a real-time channel manager. Keep external channels reconciled manually.
 
-## API
+## API and data protection
 
-- `GET /api/availability?month=YYYY-MM` → `{configured:true,room:'KASAG',blockedDates:[...]}` or HTTP 503 until connected and initialized.
-- `POST /api/booking-requests` → `{id,status:'pending'}` after validating `{checkIn,checkOut,name,email,message,idempotencyKey}`. The client uses a UUID for retry safety.
-- `GET /api/admin/availability` and `PATCH` with `{add:[],remove:[],initialize?:true}` manage manual blocks.
-- `GET /api/admin/booking-requests` lists recent requests; `PATCH` with `{id,action:'confirm'|'decline'|'cancel'}` handles them.
+Public: `GET /api/config`, `GET /api/quote`, `GET /api/availability`, `POST /api/booking-requests`.
 
-All owner endpoints require `Authorization: Bearer <owner key>`. Responses are not cached. No server credentials are included in the frontend bundle.
+Owner: `/api/admin/session`, `/api/admin/settings`, `/api/admin/availability`, `/api/admin/booking-requests`, `/api/admin/calendar-sync`, `/api/admin/email-outbox`. Owner APIs enforce server authorization. Availability exposes no guest identity. Requests use UUID idempotency, validation and rate limiting; request records expire 90 days after checkout. Private feed URLs, SMTP secrets, passwords and database credentials stay server-side.
 
-## Photos and brand assets
-
-The supplied Dropbox photographs, Moon Crab logo, and five-color palette are applied across the landing and booking pages. See [BRAND.md](BRAND.md) for asset provenance and font availability. Public photos are optimized WebPs in `public/images/`; full-resolution source photos remain outside the repository.
-
-The owner supplied occupancy (2 included; a maximum of 3 with PHP 500/night for the third guest), 2 PM check-in, 11 AM check-out, and house-rule fees. The exact General Luna Maps pin was verified from the owner’s shared link. The base nightly room rate is quoted by the host; no rate or refund policy is invented.
-
-## Guest details and manual deposits
-
-Requests accept 1–3 guests, defaulting to 2 for old clients/records. The server calculates the third-guest supplement at PHP 500 per occupied night; guest-supplied fee overrides are ignored. The owner dashboard displays this supplement and requires the host to acknowledge that the total has been agreed and the 50% deposit verified in the host’s bank account before confirming.
-
-Payments currently use a manual personal-bank transfer/receiving-QR workflow after host review. No bank details or QR have been published, no automatic payment verification is claimed, and no card checkout is enabled. The host sends the receiving details privately with the agreed total, checks actual credited funds, and confirms the request. A pending request does not hold dates; avoid issuing competing payable quotes for the same dates. Hosted card/e-wallet checkout would require an activated merchant provider and a separate hold/webhook design.
-
-Guest perks: airport pickup/drop-off at PHP 350/person/way, red 2023 Mitsubishi Strada GLS guest rental from PHP 2,500/day, local tour/activity coordination, and motorbike rental assistance. Add-on links prefill the booking enquiry. Rates and availability are confirmed by the host.
-
-The homepage’s Google Maps iframe uses the owner’s verified business listing. The CSP allows framing only from `https://www.google.com`; owner/API security and Redis records are unchanged. Scroll reveals and anchor scrolling respect reduced-motion preferences.
+See [brand provenance](BRAND.md), [destination image credits](content/DESTINATION-PHOTO-CREDITS.md), and [travel research](content/EXPLORE-SIARGAO.md). No synthetic property or destination photos are used. The guest Wi-Fi PDF is not published.

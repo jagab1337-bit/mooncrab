@@ -1,0 +1,14 @@
+import { CHANNELS, CONTACTS, externalArrow, escapeHtml } from './business.ts';
+
+export type VerifiedReview = { name: string; excerpt: string; source: 'Airbnb'|'Booking.com'|'Google'; url: string; rating?: string };
+// Populate only after the original public review and reuse permission are verified.
+export const verifiedReviews: VerifiedReview[] = [];
+export function renderReviews(reviews: VerifiedReview[] = verifiedReviews): string {
+  return `<section class="section reviews-section" id="reviews"><div class="wrap"><div class="section-top"><div><p class="eyebrow">A STAY, IN YOUR WORDS</p><h2>What our <em>guests say.</em></h2></div><p>Small stays leave their own memories.<br>We’d love to hear about yours.</p></div>${reviews.length ? `<div class="review-grid">${reviews.map(review=>`<blockquote><p>“${escapeHtml(review.excerpt)}”</p><footer>${escapeHtml(review.name)}${review.rating?` · ${escapeHtml(review.rating)}`:''}<a href="${escapeHtml(review.url)}" target="_blank" rel="noopener noreferrer">${review.source} ${externalArrow}</a></footer></blockquote>`).join('')}</div>` : `<div class="review-invitation"><p>Stayed with us? Share your Mooncrab story.</p><a class="text-link" href="${CHANNELS.maps}" target="_blank" rel="noopener noreferrer">Find us on Google & leave a review ${externalArrow}</a></div>`}</div></section>`;
+}
+export function renderSocial(): string {
+  return `<section class="section social-section"><div class="wrap social-grid"><div><p class="eyebrow">FOLLOW OUR ISLAND LIFE</p><h2>A little more<br><em>Mooncrab.</em></h2><p>Room details, island days, and the little things that make this place ours. Find us on Instagram and Facebook.</p><div class="social-actions"><a class="button" data-contact="instagramUrl" href="${CONTACTS.instagramUrl}" target="_blank" rel="noopener noreferrer">Instagram ${externalArrow}</a><a class="under-link" data-contact="facebookUrl" href="${CONTACTS.facebookUrl}" target="_blank" rel="noopener noreferrer">Facebook ${externalArrow}</a></div></div><div class="social-images"><a href="/images/full/dining.webp" data-photo-viewer data-caption="The shared dining space at Mooncrab"><img src="/images/dining.webp" alt="Wooden dining table and island details at Mooncrab" loading="lazy" width="1448" height="1086"></a><a href="/images/full/exterior.webp" data-photo-viewer data-caption="A quiet corner outside Mooncrab"><img src="/images/exterior.webp" alt="Mooncrab’s outdoor space in General Luna" loading="lazy" width="1024" height="1536"></a></div></div></section>`;
+}
+export function renderChannelLinks(): string {
+  return `<div class="channel-links"><span>Or reserve through</span><a href="${CHANNELS.airbnb}" target="_blank" rel="noopener noreferrer">Airbnb ${externalArrow}</a><a href="${CHANNELS.booking}" target="_blank" rel="noopener noreferrer">Booking.com ${externalArrow}</a></div>`;
+}

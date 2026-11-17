@@ -11,9 +11,22 @@
     {
       "source": "/manage",
       "destination": "/index.html"
+    },
+    {
+      "source": "/explore-siargao/:path*",
+      "destination": "/index.html"
     }
   ],
   "headers": [
+    {
+      "source": "/manage",
+      "headers": [{ "key": "X-Robots-Tag", "value": "noindex, nofollow" }]
+    },
+    {
+      "source": "/(.*)",
+      "has": [{ "type": "host", "value": "admin.mooncrabsiargao.com" }],
+      "headers": [{ "key": "X-Robots-Tag", "value": "noindex, nofollow" }]
+    },
     {
       "source": "/(.*)",
       "headers": [
@@ -42,5 +55,9 @@
   ],
   "regions": [
     "sin1"
+  ],
+  "crons": [
+    { "path": "/api/admin/calendar-sync?action=sync", "schedule": "0 19 * * *" },
+    { "path": "/api/admin/email-outbox?drain=1", "schedule": "15 19 * * *" }
   ]
 }

@@ -43,6 +43,7 @@ function memoryCalendar(initialized = true, dates: string[] = []) {
     commands.push(args);
     if (args[0] === 'GET') return initialized ? '1' : null;
     if (args[0] === 'SUNION') return [...blocked];
+    if (args[0] === 'SMEMBERS') return args[1] === 'mooncrab:blocked-dates' ? [...blocked] : [];
     if (args[0] === 'EVAL') {
       for (const date of JSON.parse(String(args[5]))) blocked.add(date);
       for (const date of JSON.parse(String(args[6]))) blocked.delete(date);
@@ -178,7 +179,7 @@ test('authenticated owner can read all calendar dates and initialization state',
   const res = response();
   await createAdminAvailabilityHandler({ env, now, command: store.command })(adminRequest(), res);
   assert.equal(res.code, 200);
-  assert.deepEqual(res.body, { room: 'KASAG', initialized: false, blockedDates: ['2026-11-20', '2026-12-01'] });
+  assert.deepEqual(res.body, { room: 'KASAG', initialized: false, blockedDates: ['2026-11-20', '2026-12-01'], manualDates: ['2026-11-20', '2026-12-01'], confirmedDates: [], importedDates: [] });
 });
 
 test('owner can reconcile dates and initialize a calendar in a single transaction', async () => {
@@ -188,7 +189,7 @@ test('owner can reconcile dates and initialize a calendar in a single transactio
     method: 'PATCH', body: { add: ['2026-11-21', '2026-11-21'], remove: ['2026-11-20'], initialize: true },
   }), res);
   assert.equal(res.code, 200);
-  assert.deepEqual(res.body, { room: 'KASAG', initialized: true, blockedDates: ['2026-11-21'] });
+  assert.deepEqual(res.body, { room: 'KASAG', initialized: true, blockedDates: ['2026-11-21'], manualDates: ['2026-11-21'], confirmedDates: [], importedDates: [] });
   assert.equal(store.commands.filter((command) => command[0] === 'EVAL').length, 1);
   const publicResponse = response();
   await createAvailabilityHandler({ env, now, command: store.command })(request(), publicResponse);
