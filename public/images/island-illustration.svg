@@ -1,0 +1,78 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1100" viewBox="0 0 1600 1100" fill="none">
+  <title>A quiet Siargao evening</title>
+  <desc>An original illustrated coastal landscape with coconut palms, a golden moon, sea and sand in warm ivory and forest green.</desc>
+  <defs>
+    <linearGradient id="sky" x1="800" y1="0" x2="800" y2="800" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#CFD5BC"/><stop offset=".64" stop-color="#E9E4CC"/><stop offset="1" stop-color="#F4E7CD"/>
+    </linearGradient>
+    <linearGradient id="sea" x1="800" y1="530" x2="800" y2="1010" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#8DAB98"/><stop offset="1" stop-color="#3F796D"/>
+    </linearGradient>
+    <linearGradient id="sand" x1="800" y1="805" x2="800" y2="1100" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#DFD0AA"/><stop offset="1" stop-color="#B7B38C"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0" cy="0" r="1" gradientTransform="translate(935 314) rotate(90) scale(268)">
+      <stop stop-color="#F6E7B4" stop-opacity=".7"/><stop offset="1" stop-color="#F6E7B4" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="paper" x="0" y="0" width="100%" height="100%">
+      <feTurbulence type="fractalNoise" baseFrequency=".66" numOctaves="3" stitchTiles="stitch" result="grain"/>
+      <feColorMatrix in="grain" type="saturate" values="0"/>
+      <feComponentTransfer><feFuncA type="linear" slope=".085"/></feComponentTransfer>
+      <feBlend in="SourceGraphic" mode="multiply"/>
+    </filter>
+    <g id="frond">
+      <path d="M0 0C83-70 187-103 297-80C209-87 111-55 0 0Z" fill="currentColor"/>
+      <path d="M21-14 54-63 44-25 88-82 72-36 121-94 101-47 157-104 132-57 194-106 167-67 230-102 201-77 267-93 240-84 300-80 251-72 268-48 230-65 235-32 207-58 201-18 179-48 167-10 151-39 131 0 124-30 94 10 96-22 62 14 69-14 30 16 39-5 0 0Z" fill="currentColor"/>
+    </g>
+    <g id="palm" fill="currentColor">
+      <path d="M-31 540C-15 360-12 164 0 0L14 4C2 170 9 378 21 540Z"/>
+      <path d="M-22 460 16 447M-20 418 14 406M-17 376 12 365M-15 334 9 325M-12 292 7 285M-10 250 6 244M-8 210 4 204M-6 169 4 165M-4 129 5 126" stroke="#D9CDA6" stroke-opacity=".16" stroke-width="4"/>
+      <use href="#frond" transform="rotate(-16) scale(1.05)"/>
+      <use href="#frond" transform="rotate(36) scale(.94)"/>
+      <use href="#frond" transform="rotate(79) scale(.8)"/>
+      <use href="#frond" transform="scale(-1 1) rotate(-14) scale(1.08)"/>
+      <use href="#frond" transform="scale(-1 1) rotate(36) scale(.94)"/>
+      <use href="#frond" transform="scale(-1 1) rotate(80) scale(.74)"/>
+      <use href="#frond" transform="rotate(-66) scale(.72)"/>
+      <use href="#frond" transform="scale(-1 1) rotate(-62) scale(.69)"/>
+      <ellipse cx="0" cy="9" rx="13" ry="18"/>
+      <ellipse cx="17" cy="12" rx="11" ry="15"/>
+    </g>
+  </defs>
+  <g filter="url(#paper)">
+    <path fill="url(#sky)" d="M0 0H1600V1100H0Z"/>
+    <circle cx="935" cy="314" r="268" fill="url(#glow)"/>
+    <circle cx="935" cy="314" r="93" fill="#E0BB74"/>
+    <circle cx="935" cy="314" r="82" stroke="#F4D59C" stroke-opacity=".46"/>
+    <path d="M0 543C186 529 363 562 550 547C704 535 841 534 1000 545C1210 560 1394 532 1600 548V1100H0Z" fill="url(#sea)"/>
+    <path d="M0 535C98 525 173 503 239 490C290 480 342 477 398 487C455 498 516 529 579 538C466 550 307 542 190 551L0 561Z" fill="#78917B"/>
+    <path d="M246 497C278 456 302 470 323 491C349 461 376 478 394 500C436 478 458 510 476 518L529 537L209 534Z" fill="#7B947B"/>
+    <g style="color:#7B947B">
+      <use href="#palm" transform="translate(298 454) rotate(-8) scale(.13)"/>
+      <use href="#palm" transform="translate(348 440) rotate(8) scale(.16)"/>
+      <use href="#palm" transform="translate(387 460) rotate(13) scale(.13)"/>
+      <use href="#palm" transform="translate(241 467) rotate(-10) scale(.11)"/>
+    </g>
+    <path d="M1600 552C1483 541 1400 540 1302 550C1218 561 1146 559 1095 556" stroke="#E4DDC2" stroke-width="2" opacity=".6"/>
+    <path d="M572 588C710 574 825 595 965 581M1035 612C1148 603 1275 615 1415 604M351 638C484 623 606 641 725 627M795 676C998 657 1193 679 1441 659M35 686C155 679 279 688 376 682" stroke="#D8DDC2" stroke-width="3" opacity=".45" stroke-linecap="round"/>
+    <path d="M1521 574C1284 604 1304 712 1119 745C925 778 693 731 485 762C277 794 146 841 0 831V1100H1600V566Z" fill="#B5C5AB"/>
+    <path d="M1600 608C1403 592 1330 677 1249 734C1176 788 1065 806 940 791C745 766 645 799 482 825C316 854 146 885 0 879V1100H1600Z" fill="#E8E0C6"/>
+    <path d="M1600 634C1392 618 1388 706 1266 758C1109 825 966 817 823 825C589 836 312 944 0 923V1100H1600Z" fill="url(#sand)"/>
+    <path d="M1454 665C1410 691 1389 724 1330 747M1226 790C1115 834 1025 834 920 840M706 867C570 889 446 936 327 945" stroke="#F7ECD1" stroke-width="4" stroke-linecap="round" opacity=".65"/>
+    <path d="M0 1000C196 962 349 989 499 1030C637 1068 812 1077 978 1100H0Z" fill="#728B70"/>
+    <path d="M0 1030C176 983 262 1030 435 1059C552 1079 630 1075 743 1100H0Z" fill="#426A55"/>
+    <g style="color:#294F40">
+      <use href="#palm" transform="translate(1338 182) rotate(14) scale(1.52 1.76)"/>
+    </g>
+    <g style="color:#1F493C">
+      <use href="#palm" transform="translate(210 327) rotate(-16) scale(1.16 1.49)"/>
+    </g>
+    <g style="color:#43694F">
+      <use href="#palm" transform="translate(1578 380) rotate(23) scale(.89 1.24)"/>
+    </g>
+    <path d="M1488 1100C1472 1037 1464 1003 1460 972C1490 1005 1507 1036 1522 1100M1515 1100C1527 1020 1537 988 1554 955C1558 1012 1552 1059 1549 1100M1550 1100C1574 1042 1592 1023 1600 1020V1100Z" fill="#31583F"/>
+    <path d="M61 1100C54 1060 34 1029 4 1002C43 1015 76 1051 85 1100M84 1100C83 1046 96 1005 120 976C114 1027 109 1066 108 1100M106 1100C128 1055 150 1039 190 1028C153 1058 138 1082 132 1100" fill="#254D3B"/>
+    <path d="M664 393C674 387 683 388 691 394C700 387 710 388 717 392M1128 414C1135 409 1141 409 1147 414C1154 408 1161 408 1168 411" stroke="#687F64" stroke-width="3" stroke-linecap="round"/>
+    <path d="M505 973C508 971 512 971 515 974M759 939C763 936 768 936 772 940M1057 965C1062 961 1068 962 1070 965" stroke="#A59D78" stroke-width="3" stroke-linecap="round"/>
+  </g>
+</svg>
