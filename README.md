@@ -1,5 +1,7 @@
 # Mooncrab Siargao
 
+Production website: https://mooncrab.vercel.app. See [DEPLOYMENT.md](DEPLOYMENT.md) for domain DNS and owner-provided calendar rules.
+
 Responsive Vite/TypeScript website for KASAG, Mooncrab’s single room, with a guest booking calendar and an authenticated owner dashboard. Self-hosted typography; no third-party frontend scripts. Vercel Node functions persist availability and stay requests in Upstash Redis.
 
 ## Run locally
@@ -41,7 +43,7 @@ Cloud outbound network access and Vercel authentication are separate. The draft 
 
 ## Booking operations
 
-KASAG is the only inventory item. Public users see only blocked dates; guest identity is never exposed by availability APIs. Check-in is occupied, check-out is not. Stay requests can cover up to 30 nights within the published calendar horizon.
+KASAG is the only inventory item. Public users see only blocked dates; guest identity is never exposed by availability APIs. Check-in is occupied, check-out is not. Stay requests cover 2–30 nights within the published calendar horizon.
 
 **A request is not a reservation or date hold.** The host reviews incoming requests in `/manage`, contacts the guest by email, agrees the rate and other stay details, then confirms. No payment or automatic email delivery is implemented. Check the dashboard regularly; it is the source of incoming requests. The host must manually notify guests of approval, decline, or cancellation.
 
