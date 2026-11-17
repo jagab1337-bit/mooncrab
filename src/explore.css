@@ -15,12 +15,12 @@
 .destination-card .text-link { margin-top: 12px; font-size: 12px; }
 .destination-card-illustration { display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; color: #839689; font: 70px var(--serif); }
 .explore-index { padding-top: 40px; padding-bottom: 60px; }
-.explore-page-intro { display: grid; grid-template-columns: 1.2fr 1fr; align-items: end; gap: 10%; margin-bottom: 36px; }
+.explore-page-intro { display: grid; grid-template-columns: minmax(0,1.2fr) minmax(0,1fr); align-items: end; gap: var(--layout-gap); margin-bottom: 36px; }
 .explore-page-intro h1 { font-size: clamp(50px,5.5vw,78px); }
 .explore-page-intro>div:last-child>p:first-child { font: 24px var(--serif); color: var(--cocoa); }
 .explore-page-intro>div:last-child>p:nth-child(2) { color: var(--muted); font-size: 14px; line-height: 1.8; margin-block: 12px 14px; }
 .explore-feature { display: grid; grid-template-columns: 1.45fr 1fr; background: #e8e7da; border-radius: 3px; overflow: hidden; }
-.explore-feature>div:first-child { min-height: 350px; position: relative; }
+.explore-feature>div:first-child { min-height: clamp(350px,27vw,620px); position: relative; }
 .explore-feature .explore-photo-link { position: absolute; inset: 0; }
 .explore-feature-credit { position: absolute; bottom: 10px; left: 12px; max-width: calc(100% - 24px); background: #f7eee3eb; padding: 4px 7px; border-radius: 2px; }
 .explore-feature-copy { padding: 38px; align-self: center; }
@@ -52,11 +52,11 @@
 .guide-byline { display: flex; flex-wrap: wrap; gap: 13px; font: 11px var(--mono); color: var(--muted); margin-top: 18px; }
 .guide-byline>span:first-child { color: #546b5a; border-right: 1px solid var(--line); padding-right: 13px; }
 .guide-cover { margin-bottom: 40px; }
-.guide-cover>.explore-photo-link { height: clamp(280px,39vw,510px); border-radius: 3px; }
+.guide-cover>.explore-photo-link { height: clamp(280px,36vw,760px); border-radius: 3px; }
 .guide-cover>figcaption { margin-top: 8px; }
 .explore-credit { font-size: 10px; line-height: 1.5; color: var(--muted); display: block; }
 .explore-credit a { border-bottom: 1px solid #b7b09e; }
-.guide-content { display: grid; grid-template-columns: 210px minmax(0,760px); justify-content: space-between; gap: 45px; }
+.guide-content { display: grid; grid-template-columns: 210px minmax(0,1fr); gap: var(--layout-gap); }
 .guide-side { position: sticky; top: 110px; align-self: start; padding-block: 8px; }
 .guide-side .eyebrow { font-size: 10px; }
 .guide-side nav { display: grid; gap: 11px; font-size: 12px; color: var(--muted); }
@@ -84,7 +84,7 @@
 .guide-gallery { margin-top: 54px; scroll-margin-top: 105px; }
 .guide-gallery .section-top>p { font-size: 12px; }
 .guide-gallery-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 24px; }
-.guide-gallery-grid .explore-photo-link { height: 300px; border-radius: 3px; }
+.guide-gallery-grid .explore-photo-link { height: clamp(300px,25vw,580px); border-radius: 3px; }
 .guide-gallery-grid figcaption { display: grid; gap: 5px; margin-top: 9px; }
 .guide-gallery-grid figcaption>span:first-child { font-size: 12px; color: var(--muted); line-height: 1.7; }
 .guide-source-note { border-top: 1px solid var(--line); padding-top: 20px; margin-top: 30px; font-size: 11px; line-height: 1.8; color: var(--muted); }
@@ -102,7 +102,13 @@
 .explore-missing { padding-block: 60px; }
 .explore-missing>p:not(.eyebrow) { margin-block: 25px; }
 @media(hover:hover) { .destination-card-photo:hover img { transform: scale(1.035); } .guide-side nav a:hover { color: var(--cocoa); border-color: var(--cocoa); } }
-@media(min-width:1700px) { .explore-index, .explore-article>.wrap, .explore-preview>.wrap { max-width: 1320px; } .guide-content { grid-template-columns: 240px minmax(0,850px); } }
+@media(min-width:1600px) {
+  .guide-body { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); column-gap:var(--layout-gap); align-items:start; }
+  .guide-introduction, .guide-activities, .guide-tips { grid-column:1; }
+  .guide-journey { grid-column:2; grid-row:1 / span 3; margin-top:0; }
+  .guide-introduction>p:not(.eyebrow), .guide-activities li, .guide-tips li { max-width:70ch; }
+  .explore-feature-copy>p:not(.eyebrow), .destination-card p, .explore-page-intro>div:last-child>p { max-width:65ch; font-size:16px; }
+}
 @media(max-width:1000px) { .guide-content { grid-template-columns: 165px minmax(0,1fr); gap: 30px; } .destination-grid { gap: 19px; } .destination-card h3 { font-size: 26px; } .explore-feature-copy { padding: 27px; } .explore-feature>div:first-child { min-height: 330px; } }
 @media(max-width:800px) { .destination-grid { grid-template-columns: repeat(2,minmax(0,1fr)); } .explore-preview .destination-card:last-child { display: none; } .explore-page-intro { gap: 35px; } .explore-page-intro h1 { font-size: 54px; } .explore-feature { grid-template-columns: 1.2fr 1fr; } .explore-feature-copy h2 { font-size: 35px; } .guide-content { display: block; } .guide-side { position: static; border-bottom: 1px solid var(--line); padding: 0 0 22px; margin-bottom: 29px; } .guide-side nav { display: flex; flex-wrap: wrap; gap: 12px 20px; } .guide-side nav a { border: 0; padding: 0; } .guide-side-directions { margin-top: 14px; padding-top: 0; border: 0; } .guide-gallery-grid .explore-photo-link { height: 245px; } .guide-related .destination-card:last-child { display: none; } }
 @media(max-width:600px) { .explore-index { padding-top: 28px; padding-bottom: 40px; } .explore-page-intro { display: block; margin-bottom: 25px; } .explore-page-intro h1 { font-size: 54px; } .explore-page-intro>div:last-child { margin-top: 22px; } .explore-page-intro>div:last-child>p:first-child { font-size: 22px; } .explore-page-intro>div:last-child>p:nth-child(2) { font-size: 13px; } .explore-feature { display: block; } .explore-feature>div:first-child { height: 250px; min-height: 0; } .explore-feature-copy { padding: 25px; } .explore-feature-copy h2 { font-size: 39px; } .explore-feature-copy>p:not(.eyebrow) { font-size: 13px; } .explore-library { padding-top: 37px; } .explore-library-heading { display: block; } .explore-library-heading h2 { font-size: 39px; } .explore-search { margin-top: 22px; width: 100%; } .explore-filters { gap: 7px; } .explore-filters button { padding: 7px 9px; font-size: 10px; } .destination-grid { grid-template-columns: 1fr; gap: 27px; } .destination-card-photo { aspect-ratio: 1.65; } .destination-card h3 { font-size: 29px; } .destination-card-copy { padding-top: 12px; } .destination-card p { margin-top: 7px; } .destination-card .text-link { margin-top: 9px; } .explore-preview .destination-card:last-child { display: block; } .explore-preview .section-top>div:last-child { max-width: 100%; } .explore-help { display: block; padding: 25px; margin-top: 36px; } .explore-help>div:last-child { margin-top: 18px; } .explore-help h2 { font-size: 36px; } .explore-help>div:last-child>p { font-size: 13px; } .explore-breadcrumb { padding-block: 18px; gap: 8px; font-size: 10px; } .guide-heading { margin-top: 8px; margin-bottom: 23px; } .guide-heading h1 { font-size: 49px; letter-spacing: -1.5px; } .guide-heading>p:not(.eyebrow) { font-size: 14px; margin-top: 15px; } .guide-cover { margin-bottom: 29px; } .guide-cover>.explore-photo-link { height: 290px; } .guide-byline { font-size: 10px; margin-top: 14px; } .guide-side nav { gap: 10px 16px; font-size: 11px; } .guide-body h2 { font-size: 36px; } .guide-introduction>p:not(.eyebrow) { font-size: 14px; } .guide-journey { padding: 23px 20px; margin-top: 28px; } .guide-journey dl { grid-template-columns: 1fr; gap: 16px; } .guide-journey .button { padding-inline: 13px; font-size: 11px; gap: 12px; } .guide-activities, .guide-tips { margin-top: 29px; } .guide-activities li, .guide-tips li { font-size: 13px; } .guide-gallery { margin-top: 36px; } .guide-gallery-grid { grid-template-columns: 1fr; gap: 24px; } .guide-gallery-grid .explore-photo-link { height: 270px; } .guide-gallery .section-top { gap: 14px; } .guide-related { padding-block: 35px 40px; } .guide-related .destination-card:last-child { display: block; } .guide-booking { padding-block: 33px; } .guide-booking>.wrap { display: block; } .guide-booking>.wrap>div:last-child { margin-top: 20px; } .guide-booking h2 { font-size: 39px; } .guide-booking p:not(.eyebrow) { font-size: 13px; } }
