@@ -18,7 +18,7 @@ The Vite API plugin uses the same handlers as production. Copy `.env.example` to
 
 ## Guest experience
 
-- `/`: property photographs, rates, guest perks, exact Google Maps location, house rules, travel previews, honest review invitation, social gallery, and complete contacts.
+- `/`: property photographs, rates, guest perks, exact Google Maps location, house rules, travel previews, an owner-supplied Airbnb testimonial, social gallery, and complete contacts.
 - `/booking` and the booking subdomain: live calendar, immediate price breakdown, international phone validation, and a pending stay request followed by a WhatsApp-led next-step dialog.
 - `/explore-siargao` and eight destination articles: original travel writing, verified road/boat directions from Mooncrab’s exact pin, authentic licensed photographs, credits, related guides, metadata, and structured data.
 - `/email-signature/`: reusable HTML signature, QR codes, offline previews, installation instructions and downloadable package.
@@ -44,7 +44,7 @@ The dashboard supports date ranges, manual/confirmed/imported indicators, pendin
 
 Successful creation atomically stores a pending request and two email jobs. SMTP sending is attempted only with a verified Spacemail alias and private SMTP configuration. Missing email configuration preserves queued jobs and the booking. Accepted by SMTP does not mean delivered. Two free daily cron jobs process pending email and configured calendar feeds; admin controls can run them manually.
 
-Airbnb and Booking.com buttons use the owner’s exact listing URLs. Public review retrieval was unavailable, so no review text/ratings were invented. Calendar synchronization is import-only and periodic, requires private feed URLs, and is not a real-time channel manager. Keep external channels reconciled manually.
+Airbnb and Booking.com buttons use the owner’s exact listing URLs. Nikki's five-star Airbnb review is transcribed from the owner's screenshot; see [review provenance](content/REVIEWS.md). Public automatic review retrieval is unavailable; no aggregate rating is claimed. Calendar synchronization is import-only and periodic, requires private feed URLs, and is not a real-time channel manager. Keep external channels reconciled manually.
 
 ## API and data protection
 

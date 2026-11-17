@@ -66,10 +66,18 @@ img { max-width: 100%; }
 .reviews-section { background:#eeeadf; }
 .review-invitation { display:flex; align-items:center; justify-content:space-between; gap:24px; border-top:1px solid var(--line); padding-top:22px; }
 .review-invitation p { font:500 26px var(--serif); }
-.review-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:20px; }
-.review-grid blockquote { margin:0; padding:24px; background:var(--cream); font:500 22px/1.5 var(--serif); }
-.review-grid footer { font:12px Arial,sans-serif; margin-top:18px; }
-.review-grid footer a { display:block; margin-top:7px; }
+.review-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr)); gap:20px; }
+.review-grid blockquote { margin:0; padding:30px; background:var(--cream); border:1px solid #ded5c6; border-radius:3px; font:500 23px/1.55 var(--serif); }
+.review-grid-single .review-card { display:grid; grid-template-columns:minmax(0,1fr) 180px; align-items:center; gap:46px; padding:35px 38px; }
+.review-quote p+p { margin-top:18px; }
+.review-grid footer { font:12px/1.6 Arial,sans-serif; margin-top:22px; }
+.review-grid-single footer { margin-top:0; padding-left:28px; border-left:1px solid var(--line); }
+.review-author strong { display:block; font:500 30px/1.2 var(--serif); margin:13px 0 5px; }
+.review-author>span:not(.review-stars) { display:block; color:var(--muted); font-size:11px; }
+.review-stars { display:flex; gap:3px; color:#927523; }
+.review-stars svg { width:18px; height:18px; }
+.review-grid footer a { display:inline-flex; align-items:center; gap:8px; margin-top:15px; padding-bottom:3px; border-bottom:1px solid var(--sand); }
+.review-grid footer .arrow-icon { width:14px; height:14px; }
 .social-grid { display:grid; grid-template-columns:.8fr 1.2fr; align-items:center; gap:8%; }
 .social-grid h2 { margin-bottom:20px; }
 .social-grid p:not(.eyebrow) { color:var(--muted); font-size:14px; }
@@ -387,6 +395,8 @@ img { max-width: 100%; }
   .review-invitation { display:block; }
   .review-invitation .text-link { margin-top:12px; }
   .review-grid { grid-template-columns:1fr; }
+  .review-grid-single .review-card { display:block; padding:24px; font-size:22px; }
+  .review-grid-single footer { margin-top:24px; padding:21px 0 0; border-left:0; border-top:1px solid var(--line); }
   :root { font-size: 14px; }
   .wrap,.header-inner,.footer { width: calc(100% - 40px); }
   .section { padding-block: 43px; }
