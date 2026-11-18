@@ -1,5 +1,19 @@
 import { test, expect } from '@playwright/test';
 
+test('footer admin link and common owner routes open the protected sign-in page', async ({ page }) => {
+  await page.route('**/api/admin/session', route => route.fulfill({ json: { authenticated:false } }));
+  await page.goto('/');
+  const login=page.getByRole('link',{name:'Admin login',exact:true});
+  await expect(login).toHaveAttribute('href','/manage');
+  await login.click();
+  await expect(page).toHaveURL('/manage');
+  for(const path of ['/manage','/manage/','/admin','/admin/']) {
+    await page.goto(path);
+    await expect(page.getByRole('heading',{name:'Administrator sign-in'})).toBeVisible();
+    await expect(page.locator('#owner-calendar-area')).toBeHidden();
+  }
+});
+
 test('administrator changes the bootstrap password, protects reservations, blocks a range, and saves rates', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 900 });
   const parts = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Manila', year: 'numeric', month: 'numeric' }).formatToParts(new Date());

@@ -3,6 +3,11 @@
   "framework": "vite",
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
+  "redirects": [
+    { "source": "/admin", "destination": "/manage", "permanent": false },
+    { "source": "/admin/", "destination": "/manage", "permanent": false },
+    { "source": "/manage/", "destination": "/manage", "permanent": true }
+  ],
   "rewrites": [
     {
       "source": "/booking",

@@ -182,7 +182,9 @@ function booking() {
   void load();
 }
 
-if (location.pathname === '/manage' || location.hostname === 'admin.mooncrabsiargao.com') {
+const ownerPath = location.pathname.replace(/\/+$/, '');
+if (['/manage', '/admin'].includes(ownerPath) || location.hostname === 'admin.mooncrabsiargao.com') {
+  document.title = 'Owner dashboard — Mooncrab Siargao';
   app.innerHTML = `${header()}<main id="main" class="manage-root"></main>${footer()}`;
   void import('./manage.ts').then(module => module.renderManage(document.querySelector('#main')!));
 } else if (location.pathname.startsWith('/explore-siargao')) renderExplore(app, location.pathname);

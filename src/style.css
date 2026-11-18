@@ -200,6 +200,7 @@ img { max-width: 100%; }
 .footer-contact small { color: var(--muted); font-size: 10px; display: block; }
 .footer-links { display: grid; gap: 6px; font-size: 12px; }
 .footer-links>a:last-child { display: inline-flex; align-items: center; gap: 15px; }
+.footer-links>.footer-admin { width:fit-content; margin-top:8px; padding:8px 12px; border:1px solid var(--sand); border-radius:3px; font-weight:600; }
 .footer-bottom { border-top: 1px solid var(--line); padding-top: 16px; display: flex; justify-content: space-between; color: var(--muted); font: 11px/1.6 var(--mono); }
 
 /* Booking keeps the same practical layout and accessible calendar controls. */
@@ -380,7 +381,7 @@ img { max-width: 100%; }
   .faq details>div { font-size: 12px; }
   .check-times { gap: 25px; }
   .footer-top { grid-template-columns: 1fr 1fr; gap: 22px; }
-  .footer-links { grid-column: 1/-1; display: flex; justify-content: space-between; font-size: 11px; }
+  .footer-links { grid-column: 1/-1; display: flex; flex-wrap:wrap; justify-content: space-between; gap:8px 18px; font-size: 11px; }
   .booking-layout { grid-template-columns: 1fr; }
   .booking-room { display: grid; grid-template-columns: 220px 1fr; }
   .booking-room-photo { height: 100%; }
