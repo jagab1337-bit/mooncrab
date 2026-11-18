@@ -40,7 +40,7 @@ export function sameOrigin(req: ApiRequest): boolean {
   if (typeof origin !== 'string' || typeof rawHost !== 'string' || rawHost.includes(',')) return false;
   const host = rawHost.toLowerCase();
   const local = /^(localhost|127\.0\.0\.1)(:\d+)?$/.test(host);
-  const production = ['mooncrabsiargao.com', 'www.mooncrabsiargao.com', 'booking.mooncrabsiargao.com', 'admin.mooncrabsiargao.com'].includes(host);
+  const production = ['mooncrabsiargao.com', 'www.mooncrabsiargao.com', 'booking.mooncrabsiargao.com'].includes(host);
   const deployment = /^mooncrab(?:-[a-z0-9-]+)?\.vercel\.app$/.test(host);
   if (!local && !production && !deployment) return false;
   return origin === `${local ? 'http' : 'https'}://${host}` && req.headers['sec-fetch-site'] !== 'cross-site';

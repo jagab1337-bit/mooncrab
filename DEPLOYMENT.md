@@ -25,15 +25,9 @@ Replace website parking records only; preserve mail/TXT and unrelated records. R
 
 ## Owner access
 
-Open `https://mooncrabsiargao.com/manage`. Sign in as `admin` using the supplied bootstrap password, then change it at first login. Only a scrypt hash is stored in the secret `ADMIN_BOOTSTRAP_PASSWORD_HASH`; the account/password changes persist in Redis. The existing `BOOKING_ADMIN_TOKEN` remains a private recovery key under the collapsed recovery option; never put it in a URL or share it with guests.
+Open `https://mooncrabsiargao.com/admin` or use **Admin login** in the website footer. This redirects to `/manage` on the primary domain. Sign in as `admin` using the supplied bootstrap password, then change it at first login. Only a scrypt hash is stored in the secret `ADMIN_BOOTSTRAP_PASSWORD_HASH`; the account/password changes persist in Redis. The existing `BOOKING_ADMIN_TOKEN` remains a private recovery key under the collapsed recovery option; never put it in a URL or share it with guests.
 
-`admin.mooncrabsiargao.com` is attached to Vercel with ownership verified, but DNS was missing when checked. The Cloud Spaceship session is signed out. Add this entry in Spaceship Advanced DNS, preserving all existing website and email records:
-
-| Type | Host | Value | TTL |
-| --- | --- | --- | --- |
-| CNAME | admin | cff3d388e8e2ced3.vercel-dns-017.com | 1 minute |
-
-Recheck Vercel Domains for valid DNS and HTTPS after saving. `/manage` on the primary domain remains the working owner entry point during setup.
+Owner access uses the main website; no separate admin hostname or DNS record is required. The unused hosting attachment has been retired. Keep website, booking, and email DNS records intact.
 
 ## Communications and imports
 

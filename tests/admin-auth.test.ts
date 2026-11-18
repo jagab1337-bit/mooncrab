@@ -9,7 +9,7 @@ function response() {
   return { code: 200, body: undefined as unknown, headers: {} as Record<string, string>, setHeader(name: string, value: string) { this.headers[name.toLowerCase()] = value; }, status(code: number) { this.code = code; return this; }, json(value: unknown) { this.body = value; } };
 }
 function request(method = 'GET', body?: unknown, cookie?: string): ApiRequest {
-  return { method, headers: { host: 'admin.mooncrabsiargao.com', origin: 'https://admin.mooncrabsiargao.com', 'content-type': 'application/json', ...(cookie ? { cookie } : {}) }, ...(body ? { body } : {}) };
+  return { method, headers: { host: 'mooncrabsiargao.com', origin: 'https://mooncrabsiargao.com', 'content-type': 'application/json', ...(cookie ? { cookie } : {}) }, ...(body ? { body } : {}) };
 }
 function memoryStore() {
   const values = new Map<string, string>();
@@ -82,12 +82,17 @@ test('sign-in is rate limited and cross-origin changes never reach credentials',
   for (let attempt = 0; attempt < 9; attempt++) { const res = response(); await handler(request('POST', { username: 'admin', password: 'wrong' }), res); assert.equal(res.code, attempt === 8 ? 429 : 401); }
 });
 
+test('main-site origin remains trusted while the retired admin subdomain is rejected', () => {
+  assert.equal(sameOrigin(request('POST')), true);
+  assert.equal(sameOrigin({ method: 'POST', headers: { host: 'admin.mooncrabsiargao.com', origin: 'https://admin.mooncrabsiargao.com' } }), false);
+});
+
 test('legacy recovery bearer works while missing or malformed session cookies do not', async () => {
   const { env, command } = await setup();
   assert.equal(await authorizeAdmin({ method: 'GET', headers: { authorization: 'Bearer private-recovery-key' } }, env, command), true);
   assert.equal(await authorizeAdmin({ method: 'GET', headers: {} }, env, command), false);
   assert.equal(await authorizeAdmin(request('GET', undefined, 'mooncrab_admin=invalid'), env, command), false);
-  assert.equal(sameOrigin({ method: 'POST', headers: { host: 'admin.mooncrabsiargao.com' } }), false);
-  assert.equal(sameOrigin({ method: 'POST', headers: { host: 'attacker.invalid', origin: 'https://attacker.invalid', 'x-forwarded-host': 'admin.mooncrabsiargao.com' } }), false);
-  assert.equal(sameOrigin({ method: 'POST', headers: { host: 'admin.mooncrabsiargao.com', origin: 'https://attacker.invalid', 'x-forwarded-host': 'attacker.invalid' } }), false);
+  assert.equal(sameOrigin({ method: 'POST', headers: { host: 'mooncrabsiargao.com' } }), false);
+  assert.equal(sameOrigin({ method: 'POST', headers: { host: 'attacker.invalid', origin: 'https://attacker.invalid', 'x-forwarded-host': 'mooncrabsiargao.com' } }), false);
+  assert.equal(sameOrigin({ method: 'POST', headers: { host: 'mooncrabsiargao.com', origin: 'https://attacker.invalid', 'x-forwarded-host': 'attacker.invalid' } }), false);
 });

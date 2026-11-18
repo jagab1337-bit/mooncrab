@@ -99,6 +99,9 @@ test('guest and owner templates preserve actual quote, escape guest HTML, and di
   assert.match(guest.html, /https:\/\/wa\.me\/639625284264\?text=/);
   assert.match(guest.html, /Facebook · open our page/);
   assert.match(guest.text, /Please do not reply/);
+  assert.match(owner.html, /href="https:\/\/mooncrabsiargao\.com\/admin"/);
+  assert.match(owner.text, /Dashboard: https:\/\/mooncrabsiargao\.com\/admin/);
+  assert.doesNotMatch(owner.html + owner.text, /admin\.mooncrabsiargao\.com/);
 });
 
 test('SMTP remains blocked until an authorized bookings@ sender is explicitly verified', () => {

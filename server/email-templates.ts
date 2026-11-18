@@ -63,7 +63,7 @@ export function bookingEmail(booking: EmailBooking, kind: 'guest' | 'owner', con
     ? '<p>A direct booking request has been saved. Review the details in your secure dashboard, agree the final total, and verify the 50% deposit in your bank account before confirming. This request has not reserved the room.</p>'
     : '<p>Thank you for inquiring about your stay at Moon Crab Siargao! 🌙🦀 We’ve received your booking request and look forward to helping you plan your island days.</p><p><strong>To finish your booking, please click the WhatsApp button below to chat with our team.</strong> We’ll confirm availability and finalize the details of your stay.</p>';
   const controls = owner
-    ? button('Review booking request', 'https://admin.mooncrabsiargao.com/', true)
+    ? button('Review booking request', 'https://mooncrabsiargao.com/admin', true)
     : `${button('Chat With Us on WhatsApp', `${contacts.whatsapp}?text=${encodeURIComponent(`Hi Mooncrab, I’m ${firstName(booking.name)}. I requested ${booking.room || 'KASAG'} for ${booking.checkIn} to ${booking.checkOut}${booking.pricing ? `, estimated ${peso(booking.pricing.totalPhp)}` : ''}. Could you help confirm the details?`)}`, true)}<p style="font-size:11px;margin:5px 0 20px;color:#716157;">WhatsApp, calls &amp; SMS: ${escapeHtml(contacts.phone)}.</p><p style="margin-bottom:5px;">Prefer another way to reach us?</p>${button('Facebook · open our page', contacts.facebook)}${button('Instagram', contacts.instagram)}`;
   const note = owner
     ? '<p style="font-size:11px;color:#716157;">Use the dashboard to confirm or decline. Confirming rechecks availability and blocks the stay’s nights. Contact the guest directly about your decision.</p>'
@@ -76,7 +76,7 @@ export function bookingEmail(booking: EmailBooking, kind: 'guest' | 'owner', con
     `Estimated accommodation total: ${booking.pricing ? peso(booking.pricing.totalPhp) : 'Host quote required'}`,
     `50% deposit after agreement: ${booking.pricing ? peso(booking.pricing.depositPhp) : 'Based on the agreed total'}`,
     'Status: Pending. Your reservation is not yet confirmed.',
-    ...(owner ? [`Guest: ${booking.name}`, `Email: ${booking.email}`, `Phone: ${booking.phone || 'Not supplied'}`, `WhatsApp: ${booking.whatsapp ? 'Yes' : 'Not indicated'}`, `Submitted: ${booking.createdAt}`, `Notes: ${booking.message}`, 'Dashboard: https://admin.mooncrabsiargao.com/'] : []),
+    ...(owner ? [`Guest: ${booking.name}`, `Email: ${booking.email}`, `Phone: ${booking.phone || 'Not supplied'}`, `WhatsApp: ${booking.whatsapp ? 'Yes' : 'Not indicated'}`, `Submitted: ${booking.createdAt}`, `Notes: ${booking.message}`, 'Dashboard: https://mooncrabsiargao.com/admin'] : []),
     `WhatsApp: ${contacts.whatsapp}`, `Facebook: ${contacts.facebook}`, `Instagram: ${contacts.instagram}`,
     'A 50% deposit of the agreed total is required. We verify bank receipt manually before confirming dates.',
     'Mooncrab Siargao · Reservations & Guest Care', contacts.greetings, `Calls/SMS: ${contacts.phone}`, contacts.website,

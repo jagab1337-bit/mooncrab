@@ -183,7 +183,7 @@ function booking() {
 }
 
 const ownerPath = location.pathname.replace(/\/+$/, '');
-if (['/manage', '/admin'].includes(ownerPath) || location.hostname === 'admin.mooncrabsiargao.com') {
+if (['/manage', '/admin'].includes(ownerPath)) {
   document.title = 'Owner dashboard — Mooncrab Siargao';
   app.innerHTML = `${header()}<main id="main" class="manage-root"></main>${footer()}`;
   void import('./manage.ts').then(module => module.renderManage(document.querySelector('#main')!));
