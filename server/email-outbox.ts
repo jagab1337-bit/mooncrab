@@ -272,9 +272,21 @@ export function createEmailOutboxHandler(options: EmailOptions = {}) {
         res.status(200).json({ ...settings, smtp, lastTest: typeof lastTest === 'string' ? JSON.parse(lastTest) : null }); return;
       }
       if (req.method === 'GET') {
-        const ids = await command(['ZREVRANGE', EMAIL_OUTBOX_INDEX, 0, 49]);
-        if (!Array.isArray(ids) || ids.some(id => typeof id !== 'string' || !JOB_ID.test(id))) throw new Error('Invalid outbox index');
-        const rows = await Promise.all(ids.map(id => command(['GET', `${EMAIL_JOB_PREFIX}${id}`])));
+        const lookup = req.query?.bookings;
+        let rows: unknown[];
+        if (lookup !== undefined) {
+          const ids = typeof lookup === 'string' ? [...new Set(lookup.split(',').map(id => id + ':owner'))] : [];
+          if (!ids.length || ids.length > 50 || ids.some(id => !JOB_ID.test(id))) {
+            res.status(400).json({ error: 'Provide up to 50 booking identifiers.' }); return;
+          }
+          const found = await command(['MGET', ...ids.map(id => EMAIL_JOB_PREFIX + id)]);
+          if (!Array.isArray(found)) throw new Error('Invalid outbox lookup');
+          rows = found;
+        } else {
+          const ids = await command(['ZREVRANGE', EMAIL_OUTBOX_INDEX, 0, 49]);
+          if (!Array.isArray(ids) || ids.some(id => typeof id !== 'string' || !JOB_ID.test(id))) throw new Error('Invalid outbox index');
+          rows = await Promise.all(ids.map(id => command(['GET', EMAIL_JOB_PREFIX + id])));
+        }
         const jobs = rows.filter(value => value !== null).map(value => {
           const { id, bookingId, kind, status, attempts, createdAt, updatedAt, acceptedAt, lastError, attemptStartedAt } = safeJob(value);
           return { id, bookingId, kind, status, attempts, createdAt, updatedAt, acceptedAt, lastError, lastAttempt: attemptStartedAt ? new Date(attemptStartedAt).toISOString() : undefined, safeToRetry: status === 'failed' && attempts < MAX_ATTEMPTS };

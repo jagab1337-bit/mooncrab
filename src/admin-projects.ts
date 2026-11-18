@@ -40,6 +40,7 @@ function dates(project: Project) {
   return [
     ...(project.startDate ? [{ date: project.startDate, title: 'Project start', type: 'Start' }] : []),
     ...(project.dueDate ? [{ date: project.dueDate, title: 'Project deadline', type: 'Deadline' }] : []),
+    ...project.tasks.filter(task => task.startDate).map(task => ({ date: task.startDate, title: task.title, type: 'Task start' })),
     ...project.tasks.filter(task => task.dueDate).map(task => ({ date: task.dueDate, title: task.title, type: 'Task' })),
     ...project.milestones.map(item => ({ date: item.date, title: item.title, type: item.done ? 'Completed milestone' : 'Milestone' })),
   ].sort((a,b) => a.date.localeCompare(b.date));
@@ -82,7 +83,8 @@ export async function renderProjects(container: HTMLElement, request: AdminFetch
     <div data-dashboard><div class="workspace-grid" data-stats></div>
     <div class="workspace-actions"><button type="button" data-new>Create new project</button></div>
     <div class="workspace-form"><label>Find a project<input type="search" placeholder="Search projects"></label>
-    <label>View<select data-view><option>Board</option><option>List</option><option>Calendar</option></select></label></div>
+    <label>View<select data-view><option>Board</option><option>List</option><option>Calendar</option></select></label>
+    <label data-calendar-month hidden>Calendar month<input type="month" value="${localDate().slice(0,7)}"></label></div>
     <div data-projects></div></div><div data-editor hidden></div>`;
   const find = <T extends HTMLElement>(selector: string) => container.querySelector<T>(selector)!;
   const editor = find('[data-editor]');
@@ -90,6 +92,7 @@ export async function renderProjects(container: HTMLElement, request: AdminFetch
   const status = find('[data-status]');
   const search = find<HTMLInputElement>('[type=search]');
   const view = find<HTMLSelectElement>('[data-view]');
+  const calendarMonth = find<HTMLInputElement>('[type=month]');
   const canDiscard = () => !busy && (!dirty || confirm('Discard unsaved project changes?'));
   function draw(): void {
     const today = localDate();
@@ -105,12 +108,14 @@ export async function renderProjects(container: HTMLElement, request: AdminFetch
     const query = search.value.trim().toLowerCase();
     const results = records.filter(row => (row.title + ' ' + row.description).toLowerCase().includes(query));
     const open = (row: Project) => `<button type="button" data-open="${row.id}">${escape(row.title)}</button>`;
+    find('[data-calendar-month]').hidden = view.value !== 'Calendar';
     const timeline = results.flatMap(row => dates(row).map(item => ({ row, ...item }))).sort((a,b) => a.date.localeCompare(b.date));
     const list = find('[data-projects]');
     coverObserver.disconnect();
     if (!results.length) { list.innerHTML = '<p>No projects match this view.</p>'; return; }
     if (view.value === 'Calendar') {
-      list.innerHTML = timeline.length ? timeline.map(item => `<p class="workspace-actions"><time>${item.date}</time> ${open(item.row)} <span>${escape(item.title)} · ${item.type}</span></p>`).join('') : '<p>No dates or milestones scheduled.</p>';
+      const events = timeline.filter(item => item.date.startsWith(calendarMonth.value));
+      list.innerHTML = events.length ? events.map(item => `<p class="workspace-actions"><time>${item.date}</time> ${open(item.row)} <span>${escape(item.title)} · ${item.type}</span></p>`).join('') : '<p>No dates or milestones scheduled.</p>';
     } else if (view.value === 'List') {
       list.innerHTML = `<div class="workspace-table-wrap"><table class="workspace-table"><thead><tr><th>Project</th><th>Status</th><th>Priority</th><th>Due date</th><th>Progress</th></tr></thead><tbody>${results.map(row => `<tr><td>${open(row)}</td><td>${row.status}</td><td>${row.priority}</td><td>${row.dueDate || '—'}</td><td>${progress(row)}</td></tr>`).join('')}</tbody></table></div>`;
     } else {
@@ -170,6 +175,7 @@ export async function renderProjects(container: HTMLElement, request: AdminFetch
     if (section === 'Details') {
       content.innerHTML = `<form class="workspace-form workspace-entry">${basicFields(current)}
         <label>Completion date<input type="date" name="completionDate" value="${current.completionDate}"></label>
+        ${current.links.length ? `<div class="workspace-actions workspace-full">${current.links.map(link => `<a href="${escape(link.url)}" target="_blank" rel="noopener noreferrer">${escape(link.label)}</a>`).join('')}</div>` : ''}
         <div class="workspace-actions workspace-full"><button type="submit" class="owner-primary">Save project</button>${current.id ? '<button type="button" data-remove>Delete project</button>' : ''}</div></form>`;
       const form = content.querySelector('form')!;
       form.onsubmit = event => {
@@ -184,11 +190,20 @@ export async function renderProjects(container: HTMLElement, request: AdminFetch
         ${index ? `<button type="button" data-up="${task.id}">Move up</button>` : ''}<button type="button" data-delete-task="${task.id}">Delete task</button></div></article>`).join('')}`;
     } else if (section === 'Timeline') {
       content.innerHTML = `<h3>Timeline</h3>
-        <div class="workspace-table-wrap"><table class="workspace-table"><thead><tr><th>Date</th><th>Event</th><th>Type</th></tr></thead><tbody>
-        ${dates(current).map(item => `<tr><td>${item.date}</td><td>${escape(item.title)}</td><td>${item.type}</td></tr>`).join('')}</tbody></table></div>
+        <div class="workspace-form"><label>From<input type="date" data-timeline-from></label><label>Through<input type="date" data-timeline-through></label></div>
+        <div class="workspace-table-wrap"><table class="workspace-table"><thead><tr><th>Date</th><th>Event</th><th>Type</th></tr></thead><tbody data-timeline></tbody></table></div>
         <p class="owner-hint">${current.startDate && current.dueDate ? `${Math.round((Date.parse(current.dueDate) - Date.parse(current.startDate)) / 86400000) + 1} calendar days` : 'Set project dates to see overall duration.'}</p>
         <h3>Milestones</h3>${current.milestones.map(item => `<div class="workspace-actions"><span>${escape(item.title)} · ${item.date}${item.done ? ' · Completed' : ''}</span><button type="button" data-milestone="${item.id}">Edit</button><button type="button" data-delete-milestone="${item.id}">Delete</button></div>`).join('')}
         <button class="owner-primary" type="button" data-milestone="new">Add milestone</button><div data-milestone-form></div>`;
+      const from = content.querySelector<HTMLInputElement>('[data-timeline-from]')!;
+      const through = content.querySelector<HTMLInputElement>('[data-timeline-through]')!;
+      const rows = content.querySelector<HTMLElement>('[data-timeline]')!;
+      const events = dates(current);
+      const drawTimeline = () => {
+        const shown = events.filter(item => (!from.value || item.date >= from.value) && (!through.value || item.date <= through.value));
+        rows.innerHTML = shown.length ? shown.map(item => `<tr><td>${item.date}</td><td>${escape(item.title)}</td><td>${item.type}</td></tr>`).join('') : '<tr><td colspan="3">No scheduled events in this range.</td></tr>';
+      };
+      from.onchange = drawTimeline; through.onchange = drawTimeline; drawTimeline();
     } else if (section === 'Notes') {
       content.innerHTML = `<div class="workspace-actions"><button type="button" data-note="new">Add note</button></div><div data-note-form></div>
         ${[...current.notes].reverse().map(note => `<article class="workspace-entry"><p class="owner-hint">${note.at ? localTime(note.at) : ''}</p><p class="workspace-prewrap">${escape(note.text)}</p>
@@ -262,7 +277,7 @@ export async function renderProjects(container: HTMLElement, request: AdminFetch
       void save({ ...current, notes: old ? current.notes.map(note => note.id === id ? item : note) : [...current.notes, item] });
     };
   }
-  editor.addEventListener('input', () => { dirty = true; });
+  editor.addEventListener('input', event => { if ((event.target as HTMLElement).closest('form, [data-cover]')) dirty = true; });
   editor.onclick = event => {
     const button = (event.target as HTMLElement).closest<HTMLButtonElement>('button');
     const current = project;
@@ -290,7 +305,7 @@ export async function renderProjects(container: HTMLElement, request: AdminFetch
     const row = records.find(item => item.id === id);
     if (row) open(row);
   };
-  search.oninput = draw; view.onchange = draw;
+  search.oninput = draw; view.onchange = draw; calendarMonth.onchange = draw;
   window.addEventListener('beforeunload', event => {
     if (container.isConnected && (dirty || busy)) { event.preventDefault(); event.returnValue = ''; }
   });

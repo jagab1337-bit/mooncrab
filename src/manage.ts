@@ -261,7 +261,7 @@ export async function renderManage(container: HTMLElement): Promise<void> {
     if (!authenticated) return;
     if (results[1].status === 'fulfilled' && Array.isArray(results[1].value.jobs)) {
       const jobs = results[1].value.jobs as NotificationJob[];
-      notifications = new Map(jobs.filter(job => job.kind === 'owner').map(job => [job.bookingId, job]));
+      for (const job of jobs) if (job.kind === 'owner') notifications.set(job.bookingId, job);
       for (const card of requestsList.querySelectorAll<HTMLElement>('.owner-request')) {
         const id = card.dataset.request;
         if (id) drawNotification(card, id);
@@ -382,7 +382,7 @@ export async function renderManage(container: HTMLElement): Promise<void> {
       retry.type = 'button'; retry.textContent = 'Retry owner notification';
       retry.onclick = async () => {
         retry.disabled = true;
-        try { await adminFetch('/api/admin/email-outbox', 'POST', {action:'retry', id:job.id}); await loadIntegrations(); }
+        try { await adminFetch('/api/admin/email-outbox', 'POST', {action:'retry', id:job.id}); await loadRequestNotifications(); }
         catch (error) { showError(message, error); retry.disabled = false; }
       };
       row.append(retry);
@@ -493,6 +493,22 @@ export async function renderManage(container: HTMLElement): Promise<void> {
     }
   }
 
+  async function loadRequestNotifications(): Promise<void> {
+    const ids = bookingRequests.map(booking => booking.id).filter(id => /^[0-9a-f-]{36}$/i.test(id));
+    if (!ids.length) return;
+    const chunks = [];
+    for (let index = 0; index < ids.length; index += 50) chunks.push(ids.slice(index, index + 50));
+    const results = await Promise.allSettled(chunks.map(chunk => adminFetch('/api/admin/email-outbox?bookings=' + chunk.join(','))));
+    if (!authenticated) return;
+    for (const result of results) {
+      if (result.status !== 'fulfilled' || !Array.isArray(result.value.jobs)) continue;
+      for (const job of result.value.jobs as NotificationJob[]) if (job.kind === 'owner') notifications.set(job.bookingId, job);
+    }
+    for (const card of requestsList.querySelectorAll<HTMLElement>('.owner-request')) {
+      if (card.dataset.request) drawNotification(card, card.dataset.request);
+    }
+  }
+
   async function loadRequests(): Promise<void> {
     if (!authenticated || requestsBusy) return;
     const sessionToken = token;
@@ -521,6 +537,7 @@ export async function renderManage(container: HTMLElement): Promise<void> {
       if (authenticated) {
         drawRequests();
         draw();
+        void loadRequestNotifications();
         const target = location.hash.startsWith('#request-') && document.getElementById(location.hash.slice(1));
         if (target) { target.classList.add('owner-request-target'); target.scrollIntoView({ block: 'nearest' }); }
       }

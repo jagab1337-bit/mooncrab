@@ -33,6 +33,7 @@ export async function renderVault(container: HTMLElement, request: AdminFetch): 
     const shown = records.filter(row => [row.name, row.folder, row.address].some(text => text.toLowerCase().includes(query)));
     properties.innerHTML = shown.length ? shown.map(row => `<article class="workspace-entry">
       <h3>${escape(row.name)}</h3><p>${escape(row.address)}</p><p class="owner-hint">${escape(row.folder)} · ${row.fileIds.length} attachments</p>
+      ${row.links.map(link => `<p><a href="${escape(link.url)}" target="_blank" rel="noopener noreferrer">${escape(link.label)}</a></p>`).join('')}
       ${row.mapsUrl ? `<a href="${escape(row.mapsUrl)}" target="_blank" rel="noopener noreferrer">Open map</a>` : ''}
       <div class="workspace-actions"><button type="button" data-property="${row.id}">View or edit</button></div></article>`).join('') : '<p>No matching properties.</p>';
   }

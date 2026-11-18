@@ -195,3 +195,35 @@ test('only definite failed messages can be retried by an authenticated owner', a
   assert.ok(body.jobs.every(job => !('booking' in job) && !('email' in job) && !('claimToken' in job)));
   assert.match(body.note, /not delivered/);
 });
+
+test('notification settings start empty and a test sends only to the saved recipient', async () => {
+  const values = new Map<string, string>();
+  const messages: Array<Parameters<EmailSender>[0]> = [];
+  const command: RedisCommand = async ([operation, key, value]) => {
+    if (operation === 'GET') return values.get(String(key)) ?? null;
+    if (operation === 'SET') { values.set(String(key), String(value)); return 'OK'; }
+    throw new Error('Unexpected command');
+  };
+  const handler = createEmailOutboxHandler({
+    env, command, now: () => fixedNow,
+    send: async message => { messages.push(message); return { accepted: [message.to] }; },
+  });
+  const headers = { authorization: 'Bearer test-owner-key', host: 'mooncrabsiargao.com', origin: 'https://mooncrabsiargao.com', 'content-type': 'application/json' };
+  const query = { settings: '1' };
+  const empty = response();
+  await handler({ method: 'GET', headers, query }, empty);
+  assert.equal((empty.body as { recipient: string }).recipient, '');
+  const noRecipient = response();
+  await handler({ method: 'POST', headers, query, body: { action: 'test' } }, noRecipient);
+  assert.equal(noRecipient.code, 409);
+  const saved = response();
+  await handler({ method: 'POST', headers, query, body: { action: 'save', settings: { recipient: 'owner@example.com', enabled: true } } }, saved);
+  assert.equal(saved.code, 200);
+  assert.equal(messages.length, 0);
+  const tested = response();
+  await handler({ method: 'POST', headers, query, body: { action: 'test', to: 'other@example.com' } }, tested);
+  assert.equal(tested.code, 200);
+  assert.equal((tested.body as { lastTest: { status: string } }).lastTest.status, 'accepted');
+  assert.deepEqual(messages.map(message => message.to), ['owner@example.com']);
+  assert.equal(messages[0].from, 'Moon Crab Bookings <bookings@mooncrabsiargao.com>');
+});

@@ -25,6 +25,7 @@ export async function renderFinance(container: HTMLElement, request: AdminFetch)
       <label>Month<input type="month" value="${today.slice(0, 7)}"></label>
       <label>Search<input type="search" placeholder="Search transactions"></label>
       <label>Category<select data-filter><option value="">All categories</option></select></label>
+      <label>Paid by / received from<select data-party><option value="">All names</option></select></label>
       <label>Sort<select data-sort><option value="date">Date · newest first</option><option value="amount">Amount · highest first</option></select></label>
     </div>
     <div class="workspace-actions"><button type="button" data-add>Add transaction</button><button type="button" data-export>Export shown rows as CSV</button><button type="button" data-refresh>Refresh</button></div>
@@ -34,6 +35,7 @@ export async function renderFinance(container: HTMLElement, request: AdminFetch)
   const month = find<HTMLInputElement>('[type=month]');
   const search = find<HTMLInputElement>('[type=search]');
   const filter = find<HTMLSelectElement>('[data-filter]');
+  const partyFilter = find<HTMLSelectElement>('[data-party]');
   const sort = find<HTMLSelectElement>('[data-sort]');
   const status = find<HTMLElement>('[data-status]');
   const edit = find<HTMLElement>('[data-edit]');
@@ -53,8 +55,13 @@ export async function renderFinance(container: HTMLElement, request: AdminFetch)
     const options = [...new Set([...categories[kind], ...records.filter(row => row.kind === kind).map(row => row.category)])].sort();
     filter.innerHTML = '<option value="">All categories</option>' + options.map(value => `<option>${escape(value)}</option>`).join('');
     filter.value = options.includes(selected) ? selected : '';
+    const people = [...new Set(sheet.flatMap(row => row.parties.map(party => party.name)))].sort();
+    const selectedParty = partyFilter.value;
+    partyFilter.replaceChildren(new Option('All names', ''), ...people.map(name => new Option(name)));
+    partyFilter.value = people.includes(selectedParty) ? selectedParty : '';
     const query = search.value.trim().toLowerCase();
     shown = sheet.filter(row => (!filter.value || row.category === filter.value)
+      && (!partyFilter.value || row.parties.some(party => party.name === partyFilter.value))
       && [row.name, row.category, row.notes, ...row.parties.map(party => party.name)].some(text => text.toLowerCase().includes(query)));
     shown.sort((a,b) => sort.value === 'amount' ? b.cents - a.cents : b.date.localeCompare(a.date));
     container.querySelectorAll<HTMLButtonElement>('[data-kind]').forEach(button => button.setAttribute('aria-pressed', String(button.dataset.kind === kind)));
@@ -124,7 +131,7 @@ export async function renderFinance(container: HTMLElement, request: AdminFetch)
   }
   find('[data-add]').onclick = () => openEditor();
   find('[data-refresh]').onclick = () => { if (!saving) void refresh(); };
-  for (const field of [month, search, filter, sort]) field.addEventListener('input', draw);
+  for (const field of [month, search, filter, partyFilter, sort]) field.addEventListener('input', draw);
   container.addEventListener('click', async event => {
     const button = (event.target as HTMLElement).closest<HTMLButtonElement>('button');
     if (button?.dataset.kind && !locked()) { kind = button.dataset.kind as Kind; edit.replaceChildren(); dirty = false; draw(); }
