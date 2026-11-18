@@ -18,7 +18,7 @@ The Vite API plugin uses the same handlers as production. Copy `.env.example` to
 
 ## Guest experience
 
-- `/`: property photographs, rates, guest perks, exact Google Maps location, house rules, travel previews, an owner-supplied Airbnb testimonial, social gallery, and complete contacts.
+- `/`: a six-photo KASAG carousel with full-resolution popups, rates, guest perks, exact Google Maps location, house rules, travel previews, an owner-supplied Airbnb testimonial, social gallery, and complete contacts.
 - `/booking` and the booking subdomain: live calendar, immediate price breakdown, international phone validation, and a pending stay request followed by a WhatsApp-led next-step dialog.
 - `/explore-siargao` and eight destination articles: original travel writing, verified road/boat directions from Mooncrab’s exact pin, authentic licensed photographs, credits, related guides, metadata, and structured data.
 - `/email-signature/`: reusable HTML signature, QR codes, offline previews, installation instructions and downloadable package.

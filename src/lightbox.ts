@@ -10,7 +10,7 @@ export function startPhotoViewer(): void {
   const photos: Photo[] = [];
   document.querySelectorAll<HTMLImageElement>('main img').forEach(image => {
     const name = image.getAttribute('src')?.match(/^\/images\/([\w-]+)\.webp$/)?.[1];
-    if (!name || !photoNames.has(name) || image.closest('a')) return;
+    if (!name || !photoNames.has(name) || image.closest('a, button')) return;
     const parent = image.parentElement!;
     const position = getComputedStyle(image).objectPosition;
     const link = document.createElement('a');
@@ -39,6 +39,7 @@ export function startPhotoViewer(): void {
     photos.push({ link, source: link.href, caption: link.dataset.caption || image.alt });
   });
   if (!photos.length) return;
+  photos.sort((a,b)=>a.link.compareDocumentPosition(b.link)&Node.DOCUMENT_POSITION_FOLLOWING?-1:1);
   const triggers = [...photos];
   const unique = photos.filter((photo, index) => photos.findIndex(other => other.source === photo.source) === index);
   photos.splice(0, photos.length, ...unique);

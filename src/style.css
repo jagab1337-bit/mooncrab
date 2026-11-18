@@ -117,11 +117,6 @@ img { max-width: 100%; }
 .section-top { display: flex; justify-content: space-between; align-items: flex-end; gap: 45px; margin-bottom: 30px; }
 .section-top .eyebrow { margin-bottom: 12px; }
 .section-top>p { max-width: 345px; color: var(--muted); font-size: 14px; line-height: 1.8; padding-bottom: 3px; }
-.room-section { padding-top: 53px; }
-.room-grid { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: var(--layout-gap); align-items: center; }
-.room-photo { position: relative; height: 450px; overflow: hidden; background: var(--sand); border-radius: 3px; }
-.room-photo>img { display: block; width: 100%; height: 100%; object-fit: cover; object-position: center 58%; }
-.room-photo figcaption { position: absolute; inset: auto 0 0; padding: 26px; font: italic 27px var(--serif); color: var(--cream); background: linear-gradient(transparent,#472f29a6); }
 .room-lead { font: 500 33px/1.08 var(--serif); margin-bottom: 17px; }
 .room-copy>p:not(.room-lead) { font-size: 14px; color: var(--muted); }
 .occupancy-note { border-left: 2px solid var(--sage); padding: 2px 0 2px 17px; margin-top: 20px; }
@@ -133,11 +128,6 @@ img { max-width: 100%; }
 .room-booking-note { padding-top: 15px; border-top: 1px solid var(--line); margin-bottom: 13px; }
 .room-booking-note>span { font: italic 23px var(--serif); }
 .room-booking-note p { font-size: 12px; color: var(--muted); line-height: 1.7; margin-top: 4px; }
-.space-gallery { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 22px; margin-top: 28px; }
-.space-gallery figure { min-width: 0; background:var(--paper); border:1px solid var(--line); border-radius:3px; overflow:hidden; }
-.space-gallery img { display: block; width: 100%; height: auto; aspect-ratio:3 / 4; object-fit: cover; }
-.space-gallery figure:first-child img { object-position: center 62%; }
-.space-gallery figcaption { padding:18px 20px 22px; border-top:3px solid var(--sage); font:500 clamp(24px,1.8vw,31px)/1.15 var(--serif); color:var(--cocoa); letter-spacing:-.3px; }
 
 .perks-section { background: #e9e7da; }
 .airport-perk { display: grid; grid-template-columns: 44px 1fr auto; gap: 26px; padding: 28px 32px; background: var(--cocoa); color: var(--cream); border-radius: 3px; align-items: center; margin-bottom: 28px; }
@@ -298,7 +288,6 @@ img { max-width: 100%; }
 @media(min-width:1051px) {
   .hero { grid-template-columns:minmax(0,.85fr) minmax(0,1.15fr); }
   .hero-art { height:clamp(490px,34vw,760px); }
-  .room-photo { height:clamp(450px,30vw,700px); }
   .pickup-photo { min-height:clamp(345px,25vw,580px); }
   .pickup-copy { align-self:center; }
   .location-map { height:clamp(390px,27vw,620px); }
@@ -331,9 +320,6 @@ img { max-width: 100%; }
   .stay-facts>div { gap: 10px; }
   .stay-facts strong { font-size: 11px; }
   .stay-facts small { font-size: 10px; }
-  .room-grid { gap: 5%; }
-  .room-photo { height: 440px; }
-  .space-gallery { grid-template-columns:repeat(2,minmax(0,1fr)); }
   .airport-perk { padding: 25px; gap: 20px; }
   .airport-copy h3 { font-size: 26px; }
   .airport-price { padding-left: 22px; }
@@ -365,15 +351,10 @@ img { max-width: 100%; }
   .stay-facts small { font-size: 11px; }
   .section-top { gap: 25px; }
   .section-top>p { font-size: 12px; max-width: 245px; }
-  .room-grid { grid-template-columns: .9fr 1.1fr; gap: 5%; }
-  .room-photo { height: 465px; }
-  .room-photo figcaption { padding: 20px; font-size: 24px; }
   .room-copy>p:not(.room-lead),.occupancy-note span { font-size: 12px; }
   .room-amenities li { font-size: 11px; }
   .room-amenities { gap: 10px; }
   .room-amenities .line-icon { width: 20px; }
-  .space-gallery { gap: 15px; }
-  .space-gallery figcaption { font-size:26px; }
   .airport-perk { grid-template-columns: 1fr auto; }
   .airport-icon { display: none; }
   .airport-copy h3 { font-size: 25px; }
@@ -447,9 +428,6 @@ img { max-width: 100%; }
   .section-top .eyebrow { font-size: 10px; margin-bottom: 10px; }
   .section-top h2 { font-size: 42px; }
   .section-top>p { margin-top: 16px; font-size: 13px; max-width: 350px; }
-  .room-grid { grid-template-columns: 1fr; gap: 25px; }
-  .room-photo { height: 360px; }
-  .room-photo figcaption { font-size: 25px; }
   .room-lead { font-size: 32px; margin-bottom: 15px; }
   .room-copy>p:not(.room-lead) { font-size: 13px; }
   .occupancy-note { margin-top: 18px; }
@@ -457,8 +435,6 @@ img { max-width: 100%; }
   .room-amenities { gap: 13px; }
   .room-amenities li { font-size: 12px; }
   .room-booking-note p { font-size: 12px; }
-  .space-gallery { grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; margin-top:25px; }
-  .space-gallery figcaption { padding:14px 12px 17px; font-size:23px; line-height:1.15; }
   .airport-perk { grid-template-columns: 1fr; gap: 19px; padding: 23px; margin-bottom: 23px; }
   .airport-copy .eyebrow { font-size: 9px; }
   .airport-copy h3 { font-size: 29px; }
@@ -543,7 +519,6 @@ img { max-width: 100%; }
   .hero h1 { font-size: 61px; }
   .hero-actions { gap: 16px; }
   .hero-actions .button { padding-inline: 14px; gap: 17px; }
-  .space-gallery { grid-template-columns:1fr; }
 }
 @media(prefers-reduced-motion:reduce) {
   html { scroll-behavior: auto; }
