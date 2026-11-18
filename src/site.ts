@@ -2,10 +2,8 @@ import { CONTACTS, CHANNELS } from './business.ts';
 import { renderReviews, renderSocial, renderChannelLinks } from './home-sections.ts';
 import { renderExplorePreview } from './explore.ts';
 import { renderRoomCarousel } from './room-carousel.ts';
-const ancillaryHost = location.hostname === 'booking.mooncrabsiargao.com';
-export const home = ancillaryHost ? 'https://mooncrabsiargao.com/' : '/';
-export const book = ['mooncrabsiargao.com', 'www.mooncrabsiargao.com'].includes(location.hostname)
-  ? 'https://booking.mooncrabsiargao.com/' : '/booking';
+export const home = '/';
+export const book = '/booking';
 export const arrow = '<svg class="arrow-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M5 19 19 5M5 5h14v14"/></svg>';
 const paths: Record<string, string> = {
   bath: '<path d="M4 12h16v4a4 4 0 0 1-4 4H8a4 4 0 0 1-4-4Zm2 8-1 2m13-2 1 2M5 12V5a3 3 0 0 1 6 0v1m-2 2h4"/>',

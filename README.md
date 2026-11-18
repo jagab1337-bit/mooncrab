@@ -1,6 +1,6 @@
 # Mooncrab Siargao
 
-https://mooncrabsiargao.com · https://booking.mooncrabsiargao.com
+https://mooncrabsiargao.com · https://mooncrabsiargao.com/booking
 
 Existing Vite/TypeScript website and Vercel Node 24 functions for **KASAG**, Mooncrab’s only room. Availability, guest requests, pricing, owner sessions, imported dates, and email jobs persist in the existing free Upstash Redis store in Singapore.
 

@@ -6,6 +6,16 @@ const origin='https://mooncrabsiargao.com';
 const root='/explore-siargao';
 const escape=value=>String(value).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const template=await fs.readFile('dist/index.html','utf8');
+const bookingTitle = 'Find your dates — KASAG at Mooncrab Siargao';
+const bookingDescription = 'Check live availability and request a stay at KASAG, Mooncrab’s private room in General Luna, Siargao.';
+const bookingHtml = template
+  .replace(/<title>[^<]*<\/title>/, `<title>${bookingTitle}</title>`)
+  .replace(/<meta name="description"[^>]*>/, `<meta name="description" content="${bookingDescription}" />`)
+  .replace(/<meta property="og:title"[^>]*>/, `<meta property="og:title" content="${bookingTitle}" />`)
+  .replace(/<meta property="og:description"[^>]*>/, `<meta property="og:description" content="${bookingDescription}" />`)
+  .replace('</head>', `<link rel="canonical" href="${origin}/booking" /><meta property="og:url" content="${origin}/booking" /></head>`);
+await fs.writeFile('dist/booking.html', bookingHtml);
+
 for(const guide of [null,...destinations]){
   const route=guide?`${root}/${guide.slug}`:root;
   const title=guide?`${guide.title} · Explore Siargao | Mooncrab`:'Explore Siargao · Island travel guides | Mooncrab';

@@ -10,7 +10,7 @@ The `mooncrab` Upstash Redis store (`store_nkEE3VKFum46gINN`) is connected to pr
 
 ## Custom domain
 
-These names are attached to the Vercel project: `mooncrabsiargao.com`, `www.mooncrabsiargao.com` (redirects to apex), and `booking.mooncrabsiargao.com`.
+These names are attached to the Vercel project: `mooncrabsiargao.com`, `www.mooncrabsiargao.com` (redirects to apex), and `booking.mooncrabsiargao.com` (permanently redirects legacy booking links to the main site’s `/booking` route). Keep the booking CNAME at Spaceship and the Vercel project alias to preserve the HTTPS redirect.
 
 DNS is hosted by Spaceship. Vercel's recommended DNS values observed November 18, 2026:
 

@@ -4,6 +4,9 @@
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
   "redirects": [
+    { "source": "/", "has": [{ "type": "host", "value": "booking.mooncrabsiargao.com" }], "destination": "https://mooncrabsiargao.com/booking", "permanent": true },
+    { "source": "/booking", "has": [{ "type": "host", "value": "booking.mooncrabsiargao.com" }], "destination": "https://mooncrabsiargao.com/booking", "permanent": true },
+    { "source": "/booking/", "destination": "/booking", "permanent": true },
     { "source": "/admin", "destination": "/manage", "permanent": false },
     { "source": "/admin/", "destination": "/manage", "permanent": false },
     { "source": "/manage/", "destination": "/manage", "permanent": true }
@@ -11,7 +14,7 @@
   "rewrites": [
     {
       "source": "/booking",
-      "destination": "/index.html"
+      "destination": "/booking.html"
     },
     {
       "source": "/manage",

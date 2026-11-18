@@ -12,7 +12,6 @@ import { getPublicConfig, hydrateContacts } from './business.ts';
 import { arrow, book, header, footer, home, icon, renderLanding, startMotion } from './site.ts';
 
 const app = document.querySelector<HTMLDivElement>('#app')!;
-const bookingHost = location.hostname === 'booking.mooncrabsiargao.com';
 function todayInManila(): string {
   const parts = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Manila', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date());
   return `${parts.find(p => p.type === 'year')!.value}-${parts.find(p => p.type === 'month')!.value}-${parts.find(p => p.type === 'day')!.value}`;
@@ -188,7 +187,7 @@ if (['/manage', '/admin'].includes(ownerPath)) {
   app.innerHTML = `${header()}<main id="main" class="manage-root"></main>${footer()}`;
   void import('./manage.ts').then(module => module.renderManage(document.querySelector('#main')!));
 } else if (location.pathname.startsWith('/explore-siargao')) renderExplore(app, location.pathname);
-else if (bookingHost || location.pathname === '/booking') booking();
+else if (ownerPath === '/booking' || (ownerPath === '' && location.hostname === 'booking.mooncrabsiargao.com')) booking();
 else renderLanding(app);
 startMotion();
 startPhotoViewer();
