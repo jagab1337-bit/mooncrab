@@ -4,7 +4,7 @@ import { showError } from './admin-workspace.ts';
 
 const workspacePages = {
   '/admin/finance': { label: 'Finance Tracker', load: async () => (await import('./admin-finance.ts')).renderFinance },
-  '/admin/vault': { label: 'Credentials &amp; Properties', load: async () => (await import('./admin-vault.ts')).renderVault },
+  '/admin/vault': { label: 'Logins &amp; Notes', load: async () => (await import('./admin-vault.ts')).renderVault },
   '/admin/projects': { label: 'Project Management', load: async () => (await import('./admin-projects.ts')).renderProjects },
   '/admin/settings/notifications': { label: 'Notification Settings', load: async () => (await import('./admin-notifications.ts')).renderNotifications },
 };

@@ -1,6 +1,6 @@
 import { isValidDate } from './availability.ts';
 import type { HandlerOptions } from './availability.ts';
-import { validFileIds, validLinks } from './properties.ts';
+import { validFileIds, validLinks } from './workspace-fields.ts';
 import { shortText, uuidPattern, workspaceRecords } from './workspace-records.ts';
 
 const statuses = ['Planned', 'In Progress', 'On Hold', 'Completed', 'Cancelled'];

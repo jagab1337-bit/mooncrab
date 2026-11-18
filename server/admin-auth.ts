@@ -70,6 +70,14 @@ async function sessionAccount(req: ApiRequest, env: Environment, command: RedisC
   return current && current.version === session.version ? current : null;
 }
 
+export async function vaultSession(req: ApiRequest, env: Environment, command: RedisCommand) {
+  const token = cookieToken(req);
+  if (!token) return null;
+  const current = await sessionAccount(req, env, command);
+  if (!current || current.mustChangePassword) return null;
+  return { id: hash(token), version: current.version, passwordHash: current.passwordHash };
+}
+
 export async function authorizeAdmin(req: ApiRequest, env: Environment, command: RedisCommand): Promise<boolean> {
   if (authorized(req, env)) return true; // Existing private access-key API clients remain supported.
   if (!['GET', 'HEAD', 'OPTIONS'].includes(req.method || '') && !sameOrigin(req)) return false;

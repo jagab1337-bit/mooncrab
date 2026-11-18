@@ -11,8 +11,8 @@ export type WorkspaceState = { records: WorkspaceRecord[]; imports: string[]; me
 type WorkspaceAction = { action?: string; id?: string; revision?: string; record?: unknown; records?: unknown[]; importId?: string };
 type WorkspaceExtension = {
   view: (state: WorkspaceState) => Record<string, unknown>;
-  prepare: (state: WorkspaceState, record: Record<string, unknown>, previous: WorkspaceRecord | undefined) => Record<string, unknown> | null;
-  mutate: (state: WorkspaceState, body: WorkspaceAction) => { status: number; error: string } | null;
+  prepare?: (state: WorkspaceState, record: Record<string, unknown>, previous: WorkspaceRecord | undefined) => Record<string, unknown> | null;
+  mutate?: (state: WorkspaceState, body: WorkspaceAction) => { status: number; error: string } | null;
 };
 
 const SAVE_SCRIPT = `
@@ -85,13 +85,13 @@ export function workspaceRecords(
           state.records.splice(index, 1);
         } else {
           const validated = validate(body.record);
-          const record = validated && extension ? extension.prepare(state, validated, previous) : validated;
+          const record = validated && extension?.prepare ? extension.prepare(state, validated, previous) : validated;
           if (!record) { res.status(400).json({ error: 'Review the required fields and amounts.' }); return; }
           saved = wrapped(transform ? transform(record, previous as Record<string, unknown> | undefined, timestamp) : record, previous);
           if (previous) state.records[index] = saved;
           else state.records.push(saved);
         }
-      } else if (extension && body) {
+      } else if (extension?.mutate && body) {
         const error = extension.mutate(state, body);
         if (error) { res.status(error.status).json({ error: error.error }); return; }
       } else { res.status(400).json({ error: 'Choose a supported record action.' }); return; }

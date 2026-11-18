@@ -269,7 +269,7 @@ test('a slow session check never flashes the login form, and inner navigation ke
   release();
   await expect(page.getByRole('heading', { name:'Finance Tracker' })).toBeVisible();
   const time = await page.evaluate(() => performance.timeOrigin);
-  for (const [link, heading] of [['Project Management','Project Management'], ['Credentials & Properties','Credentials & Properties'], ['Notification Settings','Booking notifications'], ['Dashboard','Stay requests']]) {
+  for (const [link, heading] of [['Project Management','Project Management'], ['Logins & Notes','Logins & Notes'], ['Notification Settings','Booking notifications'], ['Dashboard','Stay requests']]) {
     const nav = page.getByRole('navigation', { name:'Owner navigation' });
     gate = new Promise<void>(resolve => { release = resolve; });
     await nav.getByRole('link', { name:link, exact:true }).click();

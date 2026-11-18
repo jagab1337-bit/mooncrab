@@ -40,3 +40,11 @@
   .owner-panel.workspace-wide { width:100%; }
   .workspace-panel .workspace-form :is(input, textarea, select) { font-size:16px; }
 }
+.vault-login-table { min-width:590px; }
+.vault-login-table .vault-password-mask { min-width:122px; font-family:monospace; }
+.vault-row-actions { display:flex; flex-wrap:wrap; gap:6px; }
+.vault-login-editor { margin-bottom:14px; }
+.vault-login-editor h4, .vault-notes-grid h4 { margin:0; }
+.vault-setup-key { overflow-wrap:anywhere; padding:12px; border:1px solid #d9d0c1; background:#fbf7f0; }
+.vault-note-body { max-height:16em; overflow:auto; }
+.vault-notes-grid { grid-template-columns:repeat(auto-fit,minmax(min(270px,100%),1fr)); }
