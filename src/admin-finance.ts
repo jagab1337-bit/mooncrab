@@ -1,162 +1,382 @@
-import { protectDraft, escape, localDate, money, showError, workspaceUrl, type AdminFetch, type RecordIdentity } from './admin-workspace.ts';
+import './admin-finance.css';
+import { createPeopleDialog, type FinancePerson } from './admin-finance-people.ts';
+import { escape, localDate, money, protectDraft, showError, workspaceUrl, type AdminFetch, type RecordIdentity } from './admin-workspace.ts';
 
 type Kind = 'in' | 'out';
-type Party = { name: string; cents: number };
+type Party = { personId: string; name: string; cents: number };
 type Transaction = RecordIdentity & { kind: Kind; name: string; category: string; cents: number; date: string; notes: string; parties: Party[] };
 const endpoint = workspaceUrl('finance');
 const categories: Record<Kind, string[]> = {
   in: ['Daily accommodation', 'Weekly accommodation', 'Monthly accommodation', 'Booking payment', 'Advance payment', 'Security deposit', 'Other income', 'Refund received'],
   out: ['Transportation', 'Rent & deposit', 'Furniture & decor', 'Utilities', 'Repairs & maintenance', 'Supplies', 'Property & garden', 'Other expense'],
 };
+const formatMonth = new Intl.DateTimeFormat('en-PH', { month:'long', year:'numeric', timeZone:'UTC' });
+const monthNames = Array.from({ length:12 }, (_, index) =>
+  new Intl.DateTimeFormat('en-PH', { month:'long', timeZone:'UTC' }).format(new Date(Date.UTC(2026, index, 1))));
+const monthPattern = /^(?:19\d{2}|2\d{3})-(?:0[1-9]|1[0-2])$/;
 const sum = (rows: Transaction[]) => rows.reduce((total, row) => total + row.cents, 0);
+
 function parseCents(value: string): number {
   const parts = /^(\d{1,8})(?:\.(\d{1,2}))?$/.exec(value.trim());
   return parts ? Number(parts[1]) * 100 + Number((parts[2] ?? '').padEnd(2, '0')) : 0;
 }
 
+function downloadCsv(rows: Transaction[], kind: Kind, month: string): void {
+  const quote = (value: string) => '"' + (/^\s*[=+@-]/.test(value) ? "'" + value : value).replaceAll('"', '""') + '"';
+  const lines = [
+    ['Transaction', 'Category', 'Amount (PHP)', kind === 'in' ? 'Received from' : 'Paid by', 'Date', 'Notes'],
+    ...rows.map(row => [
+      row.name, row.category, (row.cents / 100).toFixed(2),
+      row.parties.map(party => `${party.name}: ${(party.cents / 100).toFixed(2)}`).join('; '), row.date, row.notes,
+    ]),
+  ];
+  const url = URL.createObjectURL(new Blob(['\uFEFF', lines.map(line => line.map(quote).join(',')).join('\r\n')], {type:'text/csv;charset=utf-8'}));
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `mooncrab-${kind === 'in' ? 'receivable' : 'payable'}-${month}.csv`;
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
 export async function renderFinance(container: HTMLElement, request: AdminFetch): Promise<void> {
-  let records: Transaction[] = [];
-  let kind: Kind = 'out';
   const today = localDate();
-  container.innerHTML = `<h2>Finance Tracker</h2>
-    <div class="workspace-grid" data-summary></div>
-    <div class="workspace-actions"><button type="button" data-kind="in">Accounts Receivable · Money In</button><button type="button" data-kind="out">Accounts Payable · Money Out</button></div>
-    <div class="workspace-form">
-      <label>Month<input type="month" value="${today.slice(0, 7)}"></label>
-      <label>Search<input type="search" placeholder="Search transactions"></label>
-      <label>Category<select data-filter><option value="">All categories</option></select></label>
-      <label>Paid by / received from<select data-party><option value="">All names</option></select></label>
-      <label>Sort<select data-sort><option value="date">Date · newest first</option><option value="amount">Amount · highest first</option></select></label>
-    </div>
-    <div class="workspace-actions"><button type="button" data-add>Add transaction</button><button type="button" data-export>Export shown rows as CSV</button><button type="button" data-refresh>Refresh</button></div>
-    <p data-status role="status" class="workspace-status">Loading transactions…</p>
-    <div data-edit></div><div class="workspace-table-wrap" data-table></div><p data-payers class="owner-hint"></p>`;
-  const find = <T extends HTMLElement>(selector: string) => container.querySelector<T>(selector)!;
-  const month = find<HTMLInputElement>('[type=month]');
-  const search = find<HTMLInputElement>('[type=search]');
-  const filter = find<HTMLSelectElement>('[data-filter]');
-  const partyFilter = find<HTMLSelectElement>('[data-party]');
-  const sort = find<HTMLSelectElement>('[data-sort]');
-  const status = find<HTMLElement>('[data-status]');
-  const edit = find<HTMLElement>('[data-edit]');
-  let shown: Transaction[] = [];
+  const initial = new URLSearchParams(location.search).get('month') ?? '';
+  let month = monthPattern.test(initial) ? initial : today.slice(0, 7);
+  let records: Transaction[] = [];
+  let directory: FinancePerson[] = [];
+  let people = new Map<string, FinancePerson>();
+  const partyName = (party: Party) => people.get(party.personId)?.name ?? party.name;
   let saving = false;
-  let dirty = false;
-  const locked = () => saving || (dirty && !window.confirm('Discard your unsaved transaction edits?'));
+  let loaded = false;
+
+  container.innerHTML = `<div class="finance-heading"><h2>Finance Tracker</h2>
+    <div class="workspace-actions"><button type="button" data-people>Manage People</button><button type="button" class="finance-text-button" data-refresh>Refresh records</button></div></div>
+    <div class="workspace-grid finance-summary" data-summary aria-label="Monthly cash flow"></div>
+    <div class="finance-month-navigation" aria-label="Finance month">
+      <button type="button" data-month-step="-1" aria-label="Previous month">‹</button>
+      <details data-month-picker>
+        <summary data-month-label></summary>
+        <form class="workspace-form finance-month-picker">
+          <label>Month<select name="month">${monthNames.map((name, index) => `<option value="${String(index + 1).padStart(2, '0')}">${name}</option>`).join('')}</select></label>
+          <label>Year<input name="year" type="number" min="1900" max="2999" required></label>
+          <div class="workspace-actions workspace-full">
+            <button type="button" data-year-step="-1" aria-label="Previous year">‹ Year</button>
+            <button type="button" data-year-step="1" aria-label="Next year">Year ›</button>
+            <button type="button" data-current-month>This month</button>
+            <button type="submit" class="owner-primary">Show month</button>
+          </div>
+        </form>
+      </details>
+      <button type="button" data-month-step="1" aria-label="Next month">›</button>
+    </div>
+    <p data-load-status class="workspace-status" role="status">Loading transactions…</p>
+    <div class="finance-sheets"><section data-sheet="in"></section><section data-sheet="out"></section></div>
+    <dialog class="owner-card workspace-panel finance-people-dialog" aria-label="People directory"></dialog>`;
+  const find = <T extends HTMLElement>(selector: string) => container.querySelector<T>(selector)!;
+  const loadStatus = find<HTMLElement>('[data-load-status]');
+  const monthPicker = find<HTMLDetailsElement>('[data-month-picker]');
+  const picker = monthPicker.querySelector('form')!;
+  const monthSelect = picker.elements.namedItem('month') as HTMLSelectElement;
+  const year = picker.elements.namedItem('year') as HTMLInputElement;
+  const sheets = (['in', 'out'] as const).map(kind => createSheet(kind));
+  function apply(result: Record<string, unknown>): void {
+    records = result.records as Transaction[];
+    directory = (result.people ?? []) as FinancePerson[];
+    people = new Map(directory.map(person => [person.id, person]));
+    sheets.forEach(sheet => sheet.updatePeople());
+  }
+  const showPeople = createPeopleDialog(find('dialog'), () => directory, async (operation, name, person) => {
+    if (saving) throw new Error('Wait for the current save to finish.');
+    saving = true;
+    const before = new Set(people.keys());
+    try {
+      apply(await request(endpoint, 'POST', { action:'person', id:person?.id, revision:person?.revision, record:{ operation, name } }));
+      draw();
+      return directory.find(candidate => !before.has(candidate.id) && candidate.name === name.trim().replace(/\s+/g, ' '));
+    } finally { saving = false; }
+  });
+  find('[data-people]').onclick = () => { if (loaded && !saving) showPeople(); };
+
   function draw(): void {
-    const monthly = records.filter(row => row.date.startsWith(month.value + '-'));
+    const monthly = records.filter(row => row.date.startsWith(month + '-'));
     const incoming = sum(monthly.filter(row => row.kind === 'in'));
     const outgoing = sum(monthly.filter(row => row.kind === 'out'));
     find('[data-summary]').innerHTML = [
-      ['Total money in', incoming], ['Total money out', outgoing], ['Net cash flow', incoming - outgoing],
-    ].map(([label, value]) => `<div class="workspace-stat">${label}<strong>${money(Number(value))}</strong></div>`).join('');
-    const sheet = monthly.filter(row => row.kind === kind);
-    const selected = filter.value;
-    const options = [...new Set([...categories[kind], ...records.filter(row => row.kind === kind).map(row => row.category)])].sort();
-    filter.innerHTML = '<option value="">All categories</option>' + options.map(value => `<option>${escape(value)}</option>`).join('');
-    filter.value = options.includes(selected) ? selected : '';
-    const people = [...new Set(sheet.flatMap(row => row.parties.map(party => party.name)))].sort();
-    const selectedParty = partyFilter.value;
-    partyFilter.replaceChildren(new Option('All names', ''), ...people.map(name => new Option(name)));
-    partyFilter.value = people.includes(selectedParty) ? selectedParty : '';
-    const query = search.value.trim().toLowerCase();
-    shown = sheet.filter(row => (!filter.value || row.category === filter.value)
-      && (!partyFilter.value || row.parties.some(party => party.name === partyFilter.value))
-      && [row.name, row.category, row.notes, ...row.parties.map(party => party.name)].some(text => text.toLowerCase().includes(query)));
-    shown.sort((a,b) => sort.value === 'amount' ? b.cents - a.cents : b.date.localeCompare(a.date));
-    container.querySelectorAll<HTMLButtonElement>('[data-kind]').forEach(button => button.setAttribute('aria-pressed', String(button.dataset.kind === kind)));
-    find('[data-table]').innerHTML = shown.length ? `<table class="workspace-table"><thead><tr><th>Transaction</th><th>Category</th><th>Amount</th><th>${kind === 'out' ? 'Paid by' : 'Received from'}</th><th>Date</th><th>Notes</th><th>Actions</th></tr></thead><tbody>
-      ${shown.map(row => `<tr><td>${escape(row.name)}</td><td>${escape(row.category)}</td><td>${money(row.cents)}</td><td>${row.parties.map(party => `${escape(party.name)} · ${money(party.cents)}`).join('<br>')}</td><td>${escape(row.date)}</td><td>${escape(row.notes)}</td><td><button data-edit-id="${row.id}">Edit</button> <button data-delete-id="${row.id}">Delete</button></td></tr>`).join('')}
-      </tbody></table>` : '<p>No transactions match this view.</p>';
-    const contributions = new Map<string, number>();
-    for (const row of sheet) for (const party of row.parties) contributions.set(party.name, (contributions.get(party.name) ?? 0) + party.cents);
-    find('[data-payers]').textContent = `Sheet total ${money(sum(sheet))}${[...contributions].map(([name, cents]) => ` · ${name} ${money(cents)}`).join('')}`;
+      ['Total Money In', incoming], ['Total Money Out', outgoing], ['Net Cash Flow', incoming - outgoing],
+    ].map(([label, value]) => `<div class="workspace-stat">${label}<strong>${loaded ? money(Number(value)) : '—'}</strong></div>`).join('');
+    find('[data-month-label]').textContent = formatMonth.format(new Date(month + '-01T00:00:00Z'));
+    monthSelect.value = month.slice(5);
+    year.value = month.slice(0, 4);
+    sheets.forEach(sheet => sheet.draw(monthly));
   }
-  async function refresh(): Promise<void> {
-    try { records = (await request(endpoint)).records as Transaction[]; draw(); status.textContent = 'Transactions loaded.'; }
-    catch (error) { showError(status, error); }
+
+  function setMonth(value: string): void {
+    if (value === month) { monthPicker.open = false; return; }
+    if (!monthPattern.test(value) || saving || (sheets.some(sheet => sheet.dirty()) && !confirm('Change the month and discard unsaved transaction edits?'))) return;
+    sheets.forEach(sheet => sheet.close());
+    month = value;
+    const url = new URL(location.href);
+    url.searchParams.set('month', month);
+    history.replaceState(history.state, '', url);
+    monthPicker.open = false;
+    draw();
   }
-  function openEditor(row?: Transaction): void {
-    if (locked()) return;
-    dirty = false;
-    edit.innerHTML = `<form class="workspace-form workspace-entry">
-      <label>Transaction<input name="name" maxlength="120" required value="${escape(row?.name)}"></label>
-      <label>Category<input name="category" list="finance-categories" required maxlength="80" value="${escape(row?.category)}"></label>
-      <datalist id="finance-categories">${[...new Set([...categories[kind], ...records.map(record => record.category)])].map(value => `<option value="${escape(value)}"></option>`).join('')}</datalist>
-      <label>Amount (PHP)<input name="amount" required type="number" step="0.01" min="0.01" value="${row ? (row.cents / 100).toFixed(2) : ''}"></label>
-      <label>Date<input name="date" type="date" required value="${row?.date ?? (month.value === today.slice(0,7) ? today : month.value + '-01')}"></label>
-      <label class="workspace-full">${kind === 'out' ? 'Paid by' : 'Received from'}<textarea name="parties" required rows="2" placeholder="One name, or one Name: amount entry per line">${escape(row?.parties.map(party => row.parties.length > 1 ? `${party.name}: ${(party.cents / 100).toFixed(2)}` : party.name).join('\n'))}</textarea></label>
-      <label class="workspace-full">Notes<textarea name="notes" maxlength="1000" rows="2">${escape(row?.notes)}</textarea></label>
-      <div class="workspace-actions workspace-full"><button class="owner-primary" type="submit">Save transaction</button><button type="button" data-cancel>Cancel</button></div>
-    </form>`;
-    const form = edit.querySelector('form')!;
-    form.addEventListener('input', () => { dirty = true; });
-    form.querySelector<HTMLButtonElement>('[data-cancel]')!.onclick = () => { if (!locked()) { edit.replaceChildren(); dirty = false; } };
-    form.onsubmit = async event => {
-      event.preventDefault();
-      if (saving) return;
-      const data = new FormData(form);
-      const value = (key: string) => String(data.get(key) ?? '').trim();
-      const cents = parseCents(value('amount'));
-      const parties = value('parties').split(/\r?\n/).map(line => {
-        const split = line.lastIndexOf(':');
-        return split < 0 ? { name: line.trim(), cents } : { name: line.slice(0, split).trim(), cents: parseCents(line.slice(split + 1)) };
+
+  function createSheet(kind: Kind) {
+    const panel = find<HTMLElement>(`[data-sheet="${kind}"]`);
+    const title = kind === 'in' ? 'Accounts Receivable' : 'Accounts Payable';
+    const direction = kind === 'in' ? 'Money In' : 'Money Out';
+    const partyLabel = kind === 'in' ? 'Received from' : 'Paid by';
+    let shown: Transaction[] = [];
+    let dirty = false;
+    let updatePeople = () => {};
+    panel.className = 'finance-sheet';
+    panel.setAttribute('aria-labelledby', 'finance-' + kind + '-title');
+    panel.innerHTML = `<header class="finance-sheet-heading">
+      <div><p class="finance-direction">${direction}</p><h3 id="finance-${kind}-title">${title}</h3></div>
+      <div class="finance-total"><small>Monthly total</small><strong data-sheet-total>—</strong></div>
+    </header>
+    <div class="workspace-actions"><button type="button" class="owner-primary" data-add>Add Transaction</button><button type="button" data-export>Export CSV</button></div>
+    <div class="workspace-form finance-filters">
+      <label class="finance-search">Search<input type="search" placeholder="Search transactions"></label>
+      <label>Category<select data-category></select></label>
+      <label>${partyLabel}<select data-party></select></label>
+      <label>Sort<select data-sort><option value="date-desc">Newest first</option><option value="date-asc">Oldest first</option><option value="amount-desc">Highest amount</option><option value="amount-asc">Lowest amount</option></select></label>
+    </div>
+    <p data-status class="workspace-status" role="status"></p>
+    <div data-editor></div><div class="workspace-table-wrap finance-table-wrap" tabindex="0" aria-label="${title} rows" data-table></div>`;
+    const get = <T extends HTMLElement>(selector: string) => panel.querySelector<T>(selector)!;
+    const status = get<HTMLElement>('[data-status]');
+    const editor = get<HTMLElement>('[data-editor]');
+    const search = get<HTMLInputElement>('[type=search]');
+    const category = get<HTMLSelectElement>('[data-category]');
+    const partyFilter = get<HTMLSelectElement>('[data-party]');
+    const sort = get<HTMLSelectElement>('[data-sort]');
+    const availableCategories = () => [...new Set([...categories[kind], ...records.filter(row => row.kind === kind).map(row => row.category)])].sort();
+    function updateOptions(select: HTMLSelectElement, values: string[], all: string): void {
+      const selected = select.value;
+      select.replaceChildren(new Option(all, ''), ...values.map(value => new Option(value)));
+      select.value = values.includes(selected) ? selected : '';
+    }
+
+    function drawSheet(monthly: Transaction[]): void {
+      const rows = monthly.filter(row => row.kind === kind);
+      get('[data-sheet-total]').textContent = loaded ? money(sum(rows)) : '—';
+      updateOptions(category, availableCategories(), 'All categories');
+      const historical = new Set(rows.flatMap(row => row.parties.map(party => party.personId)));
+      const availablePeople = directory.filter(person => !person.archived || historical.has(person.id));
+      const selectedParty = partyFilter.value;
+      partyFilter.replaceChildren(new Option('All people', ''), ...availablePeople.map(person => new Option(person.name + (person.archived ? ' (archived)' : ''), person.id)));
+      partyFilter.value = availablePeople.some(person => person.id === selectedParty) ? selectedParty : '';
+      const query = search.value.trim().toLowerCase();
+      shown = rows.filter(row => (!category.value || row.category === category.value)
+        && (!partyFilter.value || row.parties.some(party => party.personId === partyFilter.value))
+        && [row.name, row.category, row.notes, ...row.parties.map(partyName)].some(value => value.toLowerCase().includes(query)));
+      shown.sort((a, b) => {
+        if (sort.value === 'amount-desc') return b.cents - a.cents;
+        if (sort.value === 'amount-asc') return a.cents - b.cents;
+        return sort.value === 'date-asc' ? a.date.localeCompare(b.date) : b.date.localeCompare(a.date);
       });
-      if (!cents || parties.some(party => !party.name || !party.cents) || parties.reduce((total, party) => total + party.cents, 0) !== cents) {
-        status.textContent = 'Payer contributions must add up to the transaction amount.';
-        return;
+      get<HTMLButtonElement>('[data-export]').disabled = !shown.length;
+      get<HTMLButtonElement>('[data-add]').disabled = !loaded;
+      const empty = !loaded ? 'Waiting for transactions…' : rows.length ? 'No transactions match these filters.' : `No ${kind === 'in' ? 'money in' : 'money out'} recorded for this month.`;
+      get('[data-table]').innerHTML = `<table class="workspace-table finance-table"><thead><tr><th scope="col">Transaction</th><th scope="col">${partyLabel}</th><th scope="col">Date</th><th scope="col" class="finance-amount">Amount</th><th scope="col">Actions</th></tr></thead><tbody>
+        ${shown.length ? shown.map(row => `<tr><td><strong>${escape(row.name)}</strong><span class="finance-category">${escape(row.category)}</span>${row.notes ? `<small class="finance-note">${escape(row.notes)}</small>` : ''}</td>
+          <td>${row.parties.map(party => `<span class="finance-contributor">${escape(partyName(party))}${row.parties.length > 1 ? ` <small>${money(party.cents)}</small>` : ''}</span>`).join('')}</td>
+          <td><time datetime="${row.date}">${new Date(row.date + 'T00:00:00Z').toLocaleDateString('en-PH', { month:'short', day:'numeric', timeZone:'UTC' })}</time></td>
+          <td class="finance-amount">${money(row.cents)}</td><td><div class="finance-row-actions"><button type="button" data-edit-id="${row.id}">Edit</button><button type="button" data-delete-id="${row.id}">Delete</button></div></td></tr>`).join('') : `<tr><td colspan="5" class="finance-empty">${empty}</td></tr>`}
+      </tbody></table>`;
+    }
+
+    function close(): void { editor.replaceChildren(); dirty = false; updatePeople = () => {}; }
+
+    function open(row?: Transaction): void {
+      if (saving || (dirty && !confirm('Discard your unsaved transaction edits?'))) return;
+      dirty = false;
+      editor.innerHTML = `<form class="workspace-form workspace-entry finance-editor">
+        <h4 class="workspace-full">${row ? 'Edit transaction' : 'New transaction'}</h4>
+        <label>Transaction<input name="name" maxlength="120" required value="${escape(row?.name)}"></label>
+        <label>Category<input name="category" list="finance-categories-${kind}" required maxlength="80" value="${escape(row?.category)}"></label>
+        <datalist id="finance-categories-${kind}">${availableCategories().map(value => `<option value="${escape(value)}"></option>`).join('')}</datalist>
+        <label>Amount (PHP)<input name="amount" required type="number" step="0.01" min="0.01" value="${row ? (row.cents / 100).toFixed(2) : ''}"></label>
+        <label>Date<input name="date" type="date" required value="${row?.date ?? (month === today.slice(0, 7) ? today : month + '-01')}"></label>
+        <fieldset class="workspace-full finance-people-fieldset">
+          <legend>${partyLabel}</legend>
+          <label>Search existing names<input type="search" data-name-search placeholder="Filter names"></label>
+          <div data-contributors></div>
+          <div class="workspace-actions"><button type="button" data-split>Add Contributor</button></div>
+          <p class="owner-hint" data-contribution-message></p>
+        </fieldset>
+        <label class="workspace-full">Notes<textarea name="notes" maxlength="1000" rows="2">${escape(row?.notes)}</textarea></label>
+        <div class="workspace-actions workspace-full"><button class="owner-primary" type="submit">Save transaction</button><button type="button" data-cancel>Cancel</button></div>
+      </form>`;
+      const form = editor.querySelector('form')!;
+      const contributions = row?.parties.map(party => ({ personId:party.personId, amount:(party.cents / 100).toFixed(2) }))
+        ?? [{ personId:'', amount:'' }];
+      const names = form.querySelector<HTMLInputElement>('[data-name-search]')!;
+      const fields = form.querySelector<HTMLElement>('[data-contributors]')!;
+      const amount = form.querySelector<HTMLInputElement>('[name=amount]')!;
+      const contributionMessage = form.querySelector<HTMLElement>('[data-contribution-message]')!;
+      const split = form.querySelector<HTMLButtonElement>('[data-split]')!;
+      const updateContributionMessage = () => {
+        const total = parseCents(amount.value);
+        if (contributions.length === 1) contributionMessage.textContent = 'One contributor receives the full transaction amount.';
+        else {
+          const allocated = contributions.reduce((result, entry) => result + parseCents(entry.amount), 0);
+          contributionMessage.textContent = `Allocated ${money(allocated)} of ${money(total)}.`;
+        }
+      };
+      function refreshChoices(): void {
+        const keyword = names.value.trim().toLowerCase();
+        fields.querySelectorAll<HTMLSelectElement>('select').forEach((select, index) => {
+          const selected = contributions[index].personId;
+          const otherIds = new Set(contributions.filter((_, rowIndex) => rowIndex !== index).map(entry => entry.personId));
+          const choices = directory.filter(person => person.id === selected
+            || (!person.archived && !otherIds.has(person.id) && person.name.toLowerCase().includes(keyword)));
+          select.replaceChildren(new Option('Choose a person', ''),
+            ...choices.map(person => new Option(person.name + (person.archived ? ' (archived)' : ''), person.id)),
+            new Option('Add New Person…', 'new'));
+          select.value = selected;
+        });
       }
-      saving = true;
-      form.querySelectorAll('input, textarea, button').forEach(el => { (el as HTMLInputElement).disabled = true; });
-      try {
-        const result = await request(endpoint, 'POST', { action: 'save', id: row?.id, revision: row?.revision, record: { kind, name: value('name'), category: value('category'), cents, date: value('date'), notes: value('notes'), parties } });
-        records = result.records as Transaction[];
-        month.value = value('date').slice(0, 7);
-        edit.replaceChildren();
-        dirty = false;
-        draw();
-        status.textContent = 'Transaction saved.';
-      } catch (error) { showError(status, error); }
-      finally {
-        saving = false;
-        form.querySelectorAll('input, textarea, button').forEach(el => { (el as HTMLInputElement).disabled = false; });
+      function drawContributors(): void {
+        const multiple = contributions.length > 1;
+        fields.innerHTML = contributions.map((entry, index) => `<div class="finance-contribution">
+          <label>Person ${index + 1}<select required data-contributor="${index}"></select></label>
+          ${multiple ? `<label>Contribution (PHP)<input data-share="${index}" type="number" min="0.01" step="0.01" value="${escape(entry.amount)}" required></label>
+          <button type="button" data-remove-contributor="${index}" aria-label="Remove contributor ${index + 1}">Remove</button>` : ''}
+        </div>`).join('');
+        split.disabled = contributions.length >= 12;
+        refreshChoices();
+        updateContributionMessage();
       }
-    };
-    form.addEventListener('focusout', event => {
-      if (!row || !dirty || saving || !(event.relatedTarget instanceof HTMLElement)
-        || form.contains(event.relatedTarget) || event.relatedTarget.closest('.workspace-nav')) return;
-      if (form.checkValidity()) form.requestSubmit();
-    });
-    form.querySelector('input')!.focus();
-  }
-  find('[data-add]').onclick = () => openEditor();
-  find('[data-refresh]').onclick = () => { if (!saving) void refresh(); };
-  for (const field of [month, search, filter, partyFilter, sort]) field.addEventListener('input', draw);
-  container.addEventListener('click', async event => {
-    const button = (event.target as HTMLElement).closest<HTMLButtonElement>('button');
-    if (button?.dataset.kind && !locked()) { kind = button.dataset.kind as Kind; edit.replaceChildren(); dirty = false; draw(); }
-    const row = records.find(item => item.id === (button?.dataset.editId ?? button?.dataset.deleteId));
-    if (!row) return;
-    if (button?.dataset.editId) openEditor(row);
-    else if (button && !saving && window.confirm(`Delete “${row.name}”?`)) {
+      fields.onchange = event => {
+        const select = event.target as HTMLSelectElement;
+        if (select.dataset.contributor === undefined) return;
+        const entry = contributions[Number(select.dataset.contributor)];
+        if (select.value === 'new') {
+          select.value = entry.personId;
+          showPeople(person => { entry.personId = person.id; dirty = true; refreshChoices(); });
+        } else {
+          entry.personId = select.value;
+          refreshChoices();
+        }
+      };
+      fields.oninput = event => {
+        const input = event.target as HTMLInputElement;
+        if (input.dataset.share !== undefined) {
+          contributions[Number(input.dataset.share)].amount = input.value;
+          updateContributionMessage();
+        }
+      };
+      fields.onclick = event => {
+        const button = (event.target as HTMLElement).closest<HTMLButtonElement>('[data-remove-contributor]');
+        if (!button) return;
+        contributions.splice(Number(button.dataset.removeContributor), 1);
+        dirty = true;
+        drawContributors();
+      };
+      split.onclick = () => {
+        if (contributions.length === 1) contributions[0].amount = amount.value;
+        contributions.push({ personId:'', amount:'' });
+        dirty = true;
+        drawContributors();
+      };
+      amount.addEventListener('input', updateContributionMessage);
+      names.oninput = refreshChoices;
+      updatePeople = refreshChoices;
+      drawContributors();
+      form.oninput = event => { if (event.target !== names) dirty = true; };
+      form.querySelector<HTMLButtonElement>('[data-cancel]')!.onclick = () => {
+        if (!saving && (!dirty || confirm('Discard your unsaved transaction edits?'))) close();
+      };
+      form.onsubmit = async event => {
+        event.preventDefault();
+        if (saving) return;
+        const data = new FormData(form);
+        const value = (key: string) => String(data.get(key) ?? '').trim();
+        const cents = parseCents(value('amount'));
+        const parties = contributions.map(entry => ({
+          personId:entry.personId, name:people.get(entry.personId)?.name ?? '',
+          cents:contributions.length === 1 ? cents : parseCents(entry.amount),
+        }));
+        if (parties.some(party => !party.name) || new Set(parties.map(party => party.personId)).size !== parties.length) {
+          status.textContent = 'Select a different person for each contribution.';
+          return;
+        }
+        if (!cents || parties.some(party => !party.cents) || parties.reduce((total, party) => total + party.cents, 0) !== cents) {
+          status.textContent = 'Contributions must add up to the transaction amount.';
+          return;
+        }
+        saving = true;
+        const buttons = [...form.querySelectorAll('button')];
+        buttons.forEach(button => { button.disabled = true; });
+        try {
+          const date = value('date');
+          const result = await request(endpoint, 'POST', { action:'save', id:row?.id, revision:row?.revision, record:{ kind, name:value('name'), category:value('category'), cents, date, notes:value('notes'), parties } });
+          apply(result);
+          close();
+          draw();
+          status.textContent = date.startsWith(month + '-') ? 'Transaction saved.' : `Saved in ${formatMonth.format(new Date(date + 'T00:00:00Z'))}.`;
+        } catch (error) { showError(status, error); }
+        finally { saving = false; buttons.forEach(button => { button.disabled = false; }); }
+      };
+      form.querySelector('input')!.focus();
+    }
+
+    get('[data-add]').onclick = () => open();
+    get('[data-export]').onclick = () => downloadCsv(shown.map(row => ({
+      ...row, parties:row.parties.map(party => ({ ...party, name:partyName(party) })),
+    })), kind, month);
+    for (const control of [search, category, partyFilter, sort]) control.addEventListener('input', draw);
+    get('[data-table]').onclick = async event => {
+      const button = (event.target as HTMLElement).closest<HTMLButtonElement>('button');
+      const row = records.find(item => item.id === (button?.dataset.editId ?? button?.dataset.deleteId));
+      if (!row || !button || saving) return;
+      if (button.dataset.editId) { open(row); return; }
+      if (dirty && !confirm('Discard your unsaved transaction edits?')) return;
+      if (!confirm(`Delete “${row.name}”?`)) return;
       saving = true;
       try {
-        records = (await request(endpoint, 'POST', { action: 'delete', id: row.id, revision: row.revision })).records as Transaction[];
+        apply(await request(endpoint, 'POST', { action:'delete', id:row.id, revision:row.revision }));
+        close();
         draw();
         status.textContent = 'Transaction deleted.';
-      } catch (error) { showError(status, error); } finally { saving = false; }
-    }
-  });
-  find('[data-export]').onclick = () => {
-    const quote = (value: string) => '"' + (/^[\s]*[=+@-]/.test(value) ? "'" + value : value).replaceAll('"', '""') + '"';
-    const csv = [['Transaction','Category','Amount (PHP)','Paid by / received from','Date','Notes'], ...shown.map(row => [
-      row.name, row.category, (row.cents / 100).toFixed(2), row.parties.map(party => `${party.name}: ${(party.cents / 100).toFixed(2)}`).join('; '), row.date, row.notes,
-    ])].map(line => line.map(quote).join(',')).join('\r\n');
-    const url = URL.createObjectURL(new Blob(['\uFEFF', csv], { type: 'text/csv;charset=utf-8' }));
-    const link = document.createElement('a');
-    link.href = url; link.download = `mooncrab-${kind}-${month.value}.csv`; link.click();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
+      } catch (error) { showError(status, error); }
+      finally { saving = false; }
+    };
+    return { draw:drawSheet, close, dirty:() => dirty, updatePeople:() => updatePeople() };
+  }
+
+  picker.onsubmit = event => {
+    event.preventDefault();
+    setMonth(`${year.value}-${monthSelect.value}`);
   };
-  protectDraft(container, () => dirty || saving);
+  find('[data-current-month]').onclick = () => setMonth(today.slice(0, 7));
+  container.querySelectorAll<HTMLButtonElement>('[data-year-step]').forEach(button => button.onclick = () => {
+    year.value = String(Math.max(1900, Math.min(2999, Number(year.value) + Number(button.dataset.yearStep))));
+  });
+  container.querySelectorAll<HTMLButtonElement>('[data-month-step]').forEach(button => button.onclick = () => {
+    const date = new Date(month + '-01T00:00:00Z');
+    date.setUTCMonth(date.getUTCMonth() + Number(button.dataset.monthStep));
+    setMonth(date.toISOString().slice(0, 7));
+  });
+
+  async function refresh(): Promise<void> {
+    if (saving) return;
+    saving = true;
+    loadStatus.textContent = 'Loading transactions…';
+    try {
+      apply(await request(endpoint));
+      loaded = true;
+      draw();
+      loadStatus.textContent = '';
+    } catch (error) { showError(loadStatus, error); }
+    finally { saving = false; }
+  }
+
+  find('[data-refresh]').onclick = () => { void refresh(); };
+  protectDraft(container, () => saving || sheets.some(sheet => sheet.dirty()));
+  draw();
   await refresh();
 }
