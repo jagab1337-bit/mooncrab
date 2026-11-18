@@ -3,6 +3,10 @@
   "framework": "vite",
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
+  "functions": {
+    "api/**/booking-requests.ts": { "includeFiles": "public/email-signature/mooncrab-email-signature.{html,txt}" },
+    "api/admin/email-outbox.ts": { "includeFiles": "public/email-signature/mooncrab-email-signature.{html,txt}" }
+  },
   "redirects": [
     { "source": "/", "has": [{ "type": "host", "value": "booking.mooncrabsiargao.com" }], "destination": "https://mooncrabsiargao.com/booking", "permanent": true },
     { "source": "/booking", "has": [{ "type": "host", "value": "booking.mooncrabsiargao.com" }], "destination": "https://mooncrabsiargao.com/booking", "permanent": true },

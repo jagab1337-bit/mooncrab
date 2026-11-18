@@ -37,7 +37,7 @@ SMTP and Redis cannot guarantee exactly-once inbox delivery. In particular, an e
 
 ## Business signature in Spacemail Webmail
 
-The original reusable signature package remains under `public/email-signature/`. Application messages use a compact matching HTML contact component in `server/email-templates.ts`, with real text and a plain-text fallback. This does not change the mailbox's own signature.
+Booking acknowledgments, owner notifications, and the dashboard test append the standard HTML and plain-text signatures from `public/email-signature/`. The HTML includes the logo and the booking and WhatsApp QR codes. The website and the Spacemail copy tool use the same source files. Edits made in Spacemail Webmail apply to messages composed there.
 
 To apply the provided signature to `greetings@mooncrabsiargao.com`:
 

@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import {
   CLAIM_EMAIL_SCRIPT, EMAIL_JOB_PREFIX, EMAIL_OUTBOX_INDEX, EMAIL_PENDING_KEY,
   ENQUEUE_EMAILS_SCRIPT, FINISH_EMAIL_SCRIPT, RETRY_EMAIL_SCRIPT, NOTIFICATION_SETTINGS_KEY,
@@ -88,6 +89,15 @@ function response() {
     status(code: number) { this.code = code; return this; }, json(body: unknown) { this.body = body; } };
 }
 
+function assertPublishedSignature(message: { html: string; text: string }) {
+  const document = readFileSync(new URL('../public/email-signature/mooncrab-email-signature.html', import.meta.url), 'utf8');
+  const table = document.slice(document.indexOf('<table'), document.lastIndexOf('</table>') + '</table>'.length);
+  const plainText = readFileSync(new URL('../public/email-signature/mooncrab-email-signature.txt', import.meta.url), 'utf8').trim();
+  assert.ok(table.includes('qr-booking.png') && table.includes('qr-whatsapp.png'));
+  assert.ok(message.html.includes(table));
+  assert.ok(message.text.endsWith(`\n\n${plainText}`));
+}
+
 test('guest and owner templates preserve actual quote, escape guest HTML, and distinguish pending from confirmed', () => {
   const guest = bookingEmail(record, 'guest');
   const owner = bookingEmail(record, 'owner');
@@ -105,6 +115,8 @@ test('guest and owner templates preserve actual quote, escape guest HTML, and di
   assert.match(owner.html, /href="https:\/\/mooncrabsiargao\.com\/admin#request-/);
   assert.ok(owner.text.includes(`Dashboard: https://mooncrabsiargao.com/admin#request-${id}`));
   assert.doesNotMatch(owner.html + owner.text, /admin\.mooncrabsiargao\.com/);
+  assertPublishedSignature(guest);
+  assertPublishedSignature(owner);
 });
 
 test('SMTP remains blocked until an authorized bookings@ sender is explicitly verified', () => {
@@ -230,4 +242,5 @@ test('notification settings start empty and a test sends only to the saved recip
   assert.equal((tested.body as { lastTest: { status: string } }).lastTest.status, 'accepted');
   assert.deepEqual(messages.map(message => message.to), ['owner@example.com']);
   assert.equal(messages[0].from, 'Moon Crab Bookings <bookings@mooncrabsiargao.com>');
+  assertPublishedSignature(messages[0]);
 });

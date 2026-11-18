@@ -3,7 +3,7 @@ import nodemailer from 'nodemailer';
 import { authorizeAdmin, sameOrigin } from './admin-auth.ts';
 import { configured, createRedisCommand, setHeaders, unavailable } from './availability.ts';
 import type { ApiRequest, ApiResponse, Environment, HandlerOptions, RedisCommand } from './availability.ts';
-import { bookingEmail, EMAIL_CONTACTS } from './email-templates.ts';
+import { bookingEmail, EMAIL_CONTACTS, notificationTestEmail } from './email-templates.ts';
 import type { EmailBooking } from './email-templates.ts';
 import { readBusinessSettings } from './business-settings.ts';
 
@@ -262,9 +262,7 @@ export function createEmailOutboxHandler(options: EmailOptions = {}) {
             try {
               const result = await (options.send ?? smtpSender(env))({
                 from: `Moon Crab Bookings <${EMAIL_CONTACTS.bookings}>`, to: settings.recipient,
-                subject: 'Moon Crab booking notification test',
-                text: 'This test was sent from your Moon Crab notification settings.',
-                html: '<p>This test was sent from your Moon Crab notification settings.</p>',
+                ...notificationTestEmail(),
                 messageId: `<test.${id}@mooncrabsiargao.com>`,
               });
               status = result.accepted.length && !result.rejected?.length ? 'accepted' : 'failed';
