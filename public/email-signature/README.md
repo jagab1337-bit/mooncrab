@@ -48,3 +48,5 @@ No Wi-Fi, personal payment or admin QR code is included in this public signature
 The signature uses presentation tables, inline styles, standard fonts, PNG images, explicit image dimensions and no scripts in the signature HTML. Its width fits up to 580px and shrinks on smaller screens. Some email apps may change formatting on paste or apply their own dark-mode colors; send a test from your actual email app before using it widely. The copying helper is only on the installation page and is not part of the email signature.
 
 The owner corrected the Instagram account to @mooncrabsiargao. All profile links and the Instagram QR use https://www.instagram.com/mooncrabsiargao/. Re-copy the updated signature if an older version was installed.
+
+The logo was refreshed on 19 November 2026 using the owner's supplied Instagram screenshot. Re-copy the updated signature into your email app to use the new logo at its correct proportions. Updating the website and downloadable package does not change an already-installed mailbox signature automatically.

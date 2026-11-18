@@ -1,6 +1,6 @@
 # Mooncrab brand assets
 
-The site follows the supplied `/mooncrab` Dropbox palette and actual property photographs. The current wordmark is extracted from the owner's original brand board, preserving the approved letterforms, crescent and crab. The background is removed and the artwork centered with equal padding. A cocoa variant is used on light surfaces; the original cream/gold variant is available for dark surfaces. Header, compact footer, booking interface, email templates and signature share this asset. No AI-generated replacement logo is deployed. The high-resolution PNG is resampled from the supplied raster source; it does not claim to recover missing original detail. A vector/original high-resolution file would improve future print output.
+The site follows the supplied `/mooncrab` Dropbox palette and actual property photographs. The current logo was prepared from the Instagram profile screenshot supplied by the owner on 19 November 2026. Image-assisted cleanup removes the screenshot background to make a transparent asset, preserving the brown lettering, olive-gold crescent and crab. The artwork is centered on a 5:4 canvas for consistent web exports. The header, compact footer, booking interface, email templates and signature share this logo. These raster exports are not an exact vector reconstruction and do not claim to recover detail missing from the screenshot. An original vector or higher-resolution source would improve future print output.
 
 Palette: cream #F7EEE3, sand #B7B09E, sage #839689, ochre #DEB52D, cocoa #472F29. Darker supporting text colors preserve legibility on cream.
 
@@ -22,7 +22,8 @@ Photos are resized and compressed as WebP; no invented property imagery is used.
 
 ## Additional supplied material
 
-- `mooncrab-logo.png`, `mooncrab-logo-dark.png`, `mooncrab-logo.webp`, and `mooncrab-logo-email.png`: centered derivatives of the approved original brand-board wordmark. The old PDF symbol lockup has been removed from public assets.
+- `mooncrab-logo.png`, `mooncrab-logo-dark.png`, `mooncrab-logo.webp`, and `mooncrab-logo-email.png`: centered exports of the owner-supplied November 2026 logo, prepared with the image-assisted cleanup described above. The master canvas is 1200×960, the website WebP is 600×480, and the email PNG is 400×320. `brand-board.png` remains a historical reference; its older logo is not rendered on the site.
+- `favicon.png` and `apple-touch-icon.png`: the crab symbol cropped from this same logo on the existing cream background, so the mark remains legible at small sizes.
 - `pickup.webp`: `/strada/BD8AAA94-87EA-4B2B-BE7B-2C8D8F73DD64.PNG`, the owner-supplied actual red Mitsubishi pickup, WebP encoding only.
 - `pickup-detail.webp`: `/strada/95D7FE61-1AD5-4DB0-B1D4-FD4ECE89D29A.PNG`, owner-supplied front/rear montage, retained as a supporting asset.
 
