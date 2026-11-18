@@ -57,13 +57,13 @@ function wrap(title: string, content: string, contacts: TemplateContacts): strin
 
 export function bookingEmail(booking: EmailBooking, kind: 'guest' | 'owner', contacts: TemplateContacts = EMAIL_CONTACTS): { subject: string; html: string; text: string } {
   const owner = kind === 'owner';
-  const subject = owner ? `New KASAG booking request · ${booking.checkIn} · ${booking.id}` : '🌙 Your Moon Crab Siargao Booking Request — Next Steps';
+  const subject = owner ? `🌙 New Moon Crab Booking Request — ${booking.name.replace(/[\r\n]+/g, ' ')}` : '🌙 Your Moon Crab Siargao Booking Request — Next Steps';
   const greeting = owner ? 'A new island stay request.' : `Hi ${escapeHtml(firstName(booking.name))},`;
   const intro = owner
     ? '<p>A direct booking request has been saved. Review the details in your secure dashboard, agree the final total, and verify the 50% deposit in your bank account before confirming. This request has not reserved the room.</p>'
     : '<p>Thank you for inquiring about your stay at Moon Crab Siargao! 🌙🦀 We’ve received your booking request and look forward to helping you plan your island days.</p><p><strong>To finish your booking, please click the WhatsApp button below to chat with our team.</strong> We’ll confirm availability and finalize the details of your stay.</p>';
   const controls = owner
-    ? button('Review booking request', 'https://mooncrabsiargao.com/admin', true)
+    ? button('View booking in admin dashboard', `https://mooncrabsiargao.com/admin#request-${encodeURIComponent(booking.id)}`, true)
     : `${button('Chat With Us on WhatsApp', `${contacts.whatsapp}?text=${encodeURIComponent(`Hi Mooncrab, I’m ${firstName(booking.name)}. I requested ${booking.room || 'KASAG'} for ${booking.checkIn} to ${booking.checkOut}${booking.pricing ? `, estimated ${peso(booking.pricing.totalPhp)}` : ''}. Could you help confirm the details?`)}`, true)}<p style="font-size:11px;margin:5px 0 20px;color:#716157;">WhatsApp, calls &amp; SMS: ${escapeHtml(contacts.phone)}.</p><p style="margin-bottom:5px;">Prefer another way to reach us?</p>${button('Facebook · open our page', contacts.facebook)}${button('Instagram', contacts.instagram)}`;
   const note = owner
     ? '<p style="font-size:11px;color:#716157;">Use the dashboard to confirm or decline. Confirming rechecks availability and blocks the stay’s nights. Contact the guest directly about your decision.</p>'

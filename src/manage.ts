@@ -1,4 +1,15 @@
 import './manage.css';
+import './admin-workspace.css';
+import { showError } from './admin-workspace.ts';
+
+const workspacePages = {
+  '/admin/finance': { label: 'Finance Tracker', load: async () => (await import('./admin-finance.ts')).renderFinance },
+  '/admin/vault': { label: 'Credentials &amp; Properties', load: async () => (await import('./admin-vault.ts')).renderVault },
+  '/admin/projects': { label: 'Project Management', load: async () => (await import('./admin-projects.ts')).renderProjects },
+  '/admin/settings/notifications': { label: 'Notification Settings', load: async () => (await import('./admin-notifications.ts')).renderNotifications },
+};
+type NotificationJob = { id: string; bookingId: string; kind: string; status: string; lastAttempt?: string; safeToRetry: boolean; lastError?: string };
+
 
 type DateSource = '' | 'airbnb' | 'booking' | 'direct';
 type DateDetail = { source:DateSource; notes:string };
@@ -7,6 +18,9 @@ type BookingRequest = { id: string; checkIn: string; checkOut: string; name: str
 
 /** Owner-only calendar. Credentials stay in this function's memory. */
 export async function renderManage(container: HTMLElement): Promise<void> {
+  const route = location.pathname.replace(/\/+$/, '');
+  const workspacePage = workspacePages[route as keyof typeof workspacePages];
+  let notifications = new Map<string, NotificationJob>();
   const robots = document.createElement('meta');
   robots.name = 'robots';
   robots.content = 'noindex, nofollow';
@@ -53,13 +67,19 @@ export async function renderManage(container: HTMLElement): Promise<void> {
   const isBlocked = (key: string) => confirmedDates.has(key) || importedDates.has(key) || additions.has(key) || (savedDates.has(key) && !removals.has(key));
 
   container.innerHTML = `
-    <section class="owner-panel" aria-labelledby="owner-title">
+    <section class="owner-panel${workspacePage ? ' workspace-wide' : ''}" aria-labelledby="owner-title">
       <a class="owner-back" href="https://mooncrabsiargao.com/">← Back to Mooncrab</a>
       <div class="owner-heading"><p class="owner-eyebrow">MOONCRAB SIARGAO · OWNER ACCESS</p>
         <h1 id="owner-title">A little planning.<br><em>More island days.</em></h1>
         <p>Manage KASAG’s calendar. Block every existing reservation before sharing live availability with guests.</p>
       </div>
-      <div class="owner-card">
+      <nav class="workspace-nav" id="workspace-nav" aria-label="Owner navigation" hidden>
+        <a href="/admin"${workspacePage ? '' : ' aria-current="page"'}>Dashboard</a>
+        ${Object.entries(workspacePages).map(([path, page]) => `<a href="${path}"${path === route ? ' aria-current="page"' : ''}>${page.label}</a>`).join('')}
+        <button id="workspace-sign-out" type="button">Sign out</button>
+      </nav>
+      <div id="workspace-page" class="owner-card workspace-panel" hidden></div>
+      <div class="owner-card" id="owner-auth-card">
         <form id="owner-login" class="owner-login owner-unlock">
           <h2>Administrator sign-in</h2><p class="owner-hint">Use your administrator account. Sessions expire after eight hours.</p>
           <label for="owner-username">Username</label><input id="owner-username" name="username" autocomplete="username" required value="admin">
@@ -102,7 +122,7 @@ export async function renderManage(container: HTMLElement): Promise<void> {
         <p id="owner-requests-status" class="owner-status" role="status" aria-live="polite"></p>
         <div id="owner-requests-list"></div>
       </section>
-      <section id="owner-settings-area" class="owner-card owner-settings" hidden><h2>Rates & business settings</h2><p class="owner-hint">KASAG is the only room. Rate changes apply to new quotes; existing requests retain their original estimate.</p><form id="owner-settings-form"><div class="owner-settings-grid"><label>Nightly rate · PHP<input name="nightlyPhp" type="number" min="1" step="1" required></label><label>Weekly package · PHP<input name="weeklyPhp" type="number" min="1" step="1" required></label><label>30-night package · PHP<input name="monthlyPhp" type="number" min="1" step="1" required></label><label>Minimum nights<input name="minimumNights" type="number" min="2" max="90" step="1" required></label><label>Maximum nights<input name="maxNights" type="number" min="2" max="90" step="1" required></label></div><div class="owner-check-options"><label><input name="weeklyEnabled" type="checkbox"> Enable 7-night packages</label><label><input name="monthlyEnabled" type="checkbox"> Enable 30-night packages</label></div><div class="owner-settings-grid"><label>Business phone<input name="phone" type="tel" required></label><label>WhatsApp link<input name="whatsappUrl" type="url" required></label><label>Facebook URL<input name="facebookUrl" type="url" required></label><label>Instagram URL<input name="instagramUrl" type="url" required></label><label>Business email<input name="email" type="email" required></label><label>Booking sender alias<input name="bookingEmail" type="email" required></label><label>Booking notification email<input name="notificationEmail" type="email" required></label></div><p class="owner-hint">Changing an email address here does not authorize its sending alias in Spacemail. Provider configuration is still required.</p><button class="owner-primary" type="submit">Save rates & settings</button><p id="owner-settings-status" class="owner-status" role="status"></p></form><button id="owner-show-password" type="button" class="owner-text-button">Change administrator password</button></section>
+      <section id="owner-settings-area" class="owner-card owner-settings" hidden><h2>Rates & business settings</h2><p class="owner-hint">KASAG is the only room. Rate changes apply to new quotes; existing requests retain their original estimate.</p><form id="owner-settings-form"><div class="owner-settings-grid"><label>Nightly rate · PHP<input name="nightlyPhp" type="number" min="1" step="1" required></label><label>Weekly package · PHP<input name="weeklyPhp" type="number" min="1" step="1" required></label><label>30-night package · PHP<input name="monthlyPhp" type="number" min="1" step="1" required></label><label>Minimum nights<input name="minimumNights" type="number" min="2" max="90" step="1" required></label><label>Maximum nights<input name="maxNights" type="number" min="2" max="90" step="1" required></label></div><div class="owner-check-options"><label><input name="weeklyEnabled" type="checkbox"> Enable 7-night packages</label><label><input name="monthlyEnabled" type="checkbox"> Enable 30-night packages</label></div><div class="owner-settings-grid"><label>Business phone<input name="phone" type="tel" required></label><label>WhatsApp link<input name="whatsappUrl" type="url" required></label><label>Facebook URL<input name="facebookUrl" type="url" required></label><label>Instagram URL<input name="instagramUrl" type="url" required></label><label>Business email<input name="email" type="email" required></label><label>Booking sender alias<input name="bookingEmail" type="email" required></label></div><p class="owner-hint">Changing an email address here does not authorize its sending alias in Spacemail. Provider configuration is still required.</p><button class="owner-primary" type="submit">Save rates & settings</button><p id="owner-settings-status" class="owner-status" role="status"></p></form><button id="owner-show-password" type="button" class="owner-text-button">Change administrator password</button></section>
       <section id="owner-integrations-area" class="owner-card owner-settings" hidden><h2>Calendar & email connections</h2><p class="owner-hint">External calendars update periodically and may be delayed. Feed URLs and email credentials stay on the server.</p><div class="owner-integration-actions"><button id="owner-sync-calendars" type="button">Refresh external calendars</button><button id="owner-drain-email" type="button">Process queued emails</button><button id="owner-refresh-integrations" type="button">Refresh connection status</button></div><p id="owner-integrations-status" class="owner-status" role="status"></p><div id="owner-calendar-connections"></div><div id="owner-email-connections"></div></section>
     </section>`;
 
@@ -133,6 +153,10 @@ export async function renderManage(container: HTMLElement): Promise<void> {
   passwordLogout.type = 'button'; passwordLogout.className = 'owner-text-button'; passwordLogout.textContent = 'Sign out';
   passwordArea.append(passwordLogout);
   passwordLogout.addEventListener('click', () => { void signOut(); });
+  const nav = query<HTMLElement>('#workspace-nav');
+  const workspace = query<HTMLElement>('#workspace-page');
+  const authCard = query<HTMLElement>('#owner-auth-card');
+  query<HTMLButtonElement>('#workspace-sign-out').onclick = () => { void signOut(); };
   const authHeaders = (): Record<string, string> => token ? { Authorization: `Bearer ${token}` } : {};
 
   function setCalendar(result: CalendarResponse): void {
@@ -159,6 +183,19 @@ export async function renderManage(container: HTMLElement): Promise<void> {
     loginForm.hidden = true;
     recovery.hidden = true;
     passwordArea.hidden = true;
+    nav.hidden = false;
+    if (workspacePage) {
+      authCard.hidden = true;
+      workspace.hidden = false;
+      const mount = document.createElement('div');
+      mount.textContent = 'Loading workspace…';
+      workspace.replaceChildren(mount);
+      try {
+        const render = await workspacePage.load();
+        if (authenticated && mount.isConnected) await render(mount, adminFetch);
+      } catch (error) { showError(mount, error); }
+      return;
+    }
     calendarArea.hidden = false;
     requestsArea.hidden = false;
     settingsArea.hidden = false;
@@ -221,6 +258,15 @@ export async function renderManage(container: HTMLElement): Promise<void> {
 
   async function loadIntegrations(): Promise<void> {
     const results = await Promise.allSettled([adminFetch('/api/admin/calendar-sync'), adminFetch('/api/admin/email-outbox')]);
+    if (!authenticated) return;
+    if (results[1].status === 'fulfilled' && Array.isArray(results[1].value.jobs)) {
+      const jobs = results[1].value.jobs as NotificationJob[];
+      notifications = new Map(jobs.filter(job => job.kind === 'owner').map(job => [job.bookingId, job]));
+      for (const card of requestsList.querySelectorAll<HTMLElement>('.owner-request')) {
+        const id = card.dataset.request;
+        if (id) drawNotification(card, id);
+      }
+    }
     const targets = [query<HTMLElement>('#owner-calendar-connections'), query<HTMLElement>('#owner-email-connections')];
     results.forEach((result, index) => {
       if (result.status === 'fulfilled') connectionDetails(targets[index], result.value, index === 0 ? 'External calendars' : 'Transactional emails');
@@ -236,6 +282,11 @@ export async function renderManage(container: HTMLElement): Promise<void> {
   function lockCalendar(): void {
     token = '';
     authenticated = false;
+    nav.hidden = true;
+    authCard.hidden = false;
+    workspace.hidden = true;
+    workspace.replaceChildren();
+    notifications.clear();
     additions.clear();
     removals.clear();
     savedDates.clear();
@@ -312,6 +363,33 @@ export async function renderManage(container: HTMLElement): Promise<void> {
     return response.json();
   }
 
+  function drawNotification(card: HTMLElement, id: string): void {
+    card.querySelector('[data-owner-notification]')?.remove();
+    const job = notifications.get(id);
+    const row = document.createElement('div');
+    row.dataset.ownerNotification = '';
+    row.className = 'owner-hint';
+    const message = document.createElement('p');
+    const labels: Record<string, string> = { queued: 'Pending', sending: 'Sending', accepted: 'Accepted by Spacemail', failed: 'Failed', unknown: 'Outcome uncertain' };
+    const last = job?.lastAttempt ? new Date(job.lastAttempt).toLocaleString('en-PH', { timeZone: 'Asia/Manila' }) : 'No recorded attempt';
+    message.textContent = `Owner notification · ${job ? labels[job.status] || job.status : 'No retained email record'} · ${last}`;
+    row.append(message);
+    if (job?.lastError) {
+      const error = document.createElement('p'); error.textContent = job.lastError; row.append(error);
+    }
+    if (job?.safeToRetry) {
+      const retry = document.createElement('button');
+      retry.type = 'button'; retry.textContent = 'Retry owner notification';
+      retry.onclick = async () => {
+        retry.disabled = true;
+        try { await adminFetch('/api/admin/email-outbox', 'POST', {action:'retry', id:job.id}); await loadIntegrations(); }
+        catch (error) { showError(message, error); retry.disabled = false; }
+      };
+      row.append(retry);
+    }
+    card.append(row);
+  }
+
   function drawRequests(): void {
     requestsList.replaceChildren();
     drawOverview();
@@ -325,6 +403,8 @@ export async function renderManage(container: HTMLElement): Promise<void> {
     for (const booking of bookingRequests) {
       const card = document.createElement('article');
       card.className = 'owner-request';
+      card.dataset.request = booking.id;
+      card.id = 'request-' + booking.id;
       const heading = document.createElement('div');
       heading.className = 'owner-request-heading';
       const name = document.createElement('h3');
@@ -358,6 +438,7 @@ export async function renderManage(container: HTMLElement): Promise<void> {
       const submitted = Number.isFinite(Date.parse(booking.createdAt)) ? new Intl.DateTimeFormat('en', { timeZone: 'Asia/Manila', dateStyle: 'medium', timeStyle: 'short' }).format(new Date(booking.createdAt)) : 'time unavailable';
       detail.textContent = `${booking.room || 'KASAG'} · ${nights} nights · Submitted ${submitted}${booking.pricing?.totalPhp !== undefined ? ` · Estimated PHP ${booking.pricing.totalPhp.toLocaleString('en-PH')}` : ''}`;
       card.append(detail);
+      drawNotification(card, booking.id);
       if (booking.phone) {
         const phone = document.createElement('a'); phone.href = `tel:${booking.phone}`; phone.className = 'owner-request-email'; phone.textContent = `${booking.phone}${booking.whatsapp ? ' · WhatsApp available' : ''}`; card.append(phone);
       }
@@ -437,7 +518,12 @@ export async function renderManage(container: HTMLElement): Promise<void> {
     } finally {
       requestsBusy = false;
       refreshRequests.disabled = false;
-      if (authenticated) { drawRequests(); draw(); }
+      if (authenticated) {
+        drawRequests();
+        draw();
+        const target = location.hash.startsWith('#request-') && document.getElementById(location.hash.slice(1));
+        if (target) { target.classList.add('owner-request-target'); target.scrollIntoView({ block: 'nearest' }); }
+      }
     }
   }
 
@@ -697,7 +783,7 @@ export async function renderManage(container: HTMLElement): Promise<void> {
     event.preventDefault();
     const field = (name: string) => settingsForm.elements.namedItem(name) as HTMLInputElement;
     const pricing = Object.fromEntries(['nightlyPhp', 'weeklyPhp', 'monthlyPhp', 'minimumNights', 'maxNights'].map(key => [key, Number(field(key).value)]));
-    const contacts = Object.fromEntries(['phone', 'whatsappUrl', 'facebookUrl', 'instagramUrl', 'email', 'bookingEmail', 'notificationEmail'].map(key => [key, field(key).value.trim()]));
+    const contacts = Object.fromEntries(['phone', 'whatsappUrl', 'facebookUrl', 'instagramUrl', 'email', 'bookingEmail'].map(key => [key, field(key).value.trim()]));
     const settingsStatus = query<HTMLElement>('#owner-settings-status');
     const button = settingsForm.querySelector<HTMLButtonElement>('button')!;
     button.disabled = true; settingsStatus.textContent = 'Saving rates and settings…';

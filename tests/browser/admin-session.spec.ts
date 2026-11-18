@@ -49,10 +49,10 @@ test('footer admin link and common owner routes open the protected sign-in page'
   });
   await page.goto('/');
   const login=page.getByRole('link',{name:'Admin login',exact:true});
-  await expect(login).toHaveAttribute('href','/manage');
+  await expect(login).toHaveAttribute('href','/admin');
   await login.click();
-  await expect(page).toHaveURL('/manage');
-  for(const path of ['/manage','/manage/','/admin','/admin/']) {
+  await expect(page).toHaveURL('/admin');
+  for(const path of ['/manage','/manage/','/admin','/admin/','/admin/finance','/admin/vault','/admin/projects','/admin/settings/notifications']) {
     await page.goto(path);
     await expect(page.getByRole('heading',{name:'Administrator sign-in'})).toBeVisible();
     await expect(page.locator('#owner-calendar-area')).toBeHidden();

@@ -7,9 +7,9 @@
     { "source": "/", "has": [{ "type": "host", "value": "booking.mooncrabsiargao.com" }], "destination": "https://mooncrabsiargao.com/booking", "permanent": true },
     { "source": "/booking", "has": [{ "type": "host", "value": "booking.mooncrabsiargao.com" }], "destination": "https://mooncrabsiargao.com/booking", "permanent": true },
     { "source": "/booking/", "destination": "/booking", "permanent": true },
-    { "source": "/admin", "destination": "/manage", "permanent": false },
-    { "source": "/admin/", "destination": "/manage", "permanent": false },
-    { "source": "/manage/", "destination": "/manage", "permanent": true }
+    { "source": "/admin/", "destination": "/admin", "permanent": true },
+    { "source": "/manage", "destination": "/admin", "permanent": false },
+    { "source": "/manage/", "destination": "/admin", "permanent": false }
   ],
   "rewrites": [
     {
@@ -17,7 +17,7 @@
       "destination": "/booking.html"
     },
     {
-      "source": "/manage",
+      "source": "/admin/:path*",
       "destination": "/index.html"
     },
     {
@@ -27,7 +27,7 @@
   ],
   "headers": [
     {
-      "source": "/manage",
+      "source": "/admin/:path*",
       "headers": [{ "key": "X-Robots-Tag", "value": "noindex, nofollow" }]
     },
     {
@@ -51,7 +51,7 @@
         },
         {
           "key": "Content-Security-Policy",
-          "value": "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; script-src 'self'; connect-src 'self'; frame-src https://www.google.com; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+          "value": "default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; font-src 'self'; script-src 'self'; connect-src 'self'; frame-src https://www.google.com; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
         }
       ]
     }

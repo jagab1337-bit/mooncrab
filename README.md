@@ -19,7 +19,7 @@ The Vite API plugin uses the same handlers as production. Copy `.env.example` to
 ## Guest experience
 
 - `/`: a six-photo KASAG carousel with full-resolution popups, rates, guest perks, exact Google Maps location, house rules, travel previews, an owner-supplied Airbnb testimonial, social gallery, and complete contacts.
-- `/booking` and the booking subdomain: live calendar, immediate price breakdown, international phone validation, and a pending stay request followed by a WhatsApp-led next-step dialog.
+- `/booking` (the former booking hostname redirects here): live calendar, immediate price breakdown, international phone validation, and a pending stay request followed by a WhatsApp-led next-step dialog.
 - `/explore-siargao` and eight destination articles: original travel writing, verified road/boat directions from Mooncrab’s exact pin, authentic licensed photographs, credits, related guides, metadata, and structured data.
 - `/email-signature/`: reusable HTML signature, QR codes, offline previews, installation instructions and downloadable package.
 - Photographs open in an accessible viewer with full frames, original pixel dimensions, keyboard controls and direct full-image links. Display thumbnails are separate optimized assets.
@@ -34,9 +34,11 @@ Confirmation atomically rechecks manual, confirmed and imported blocked nights. 
 
 ## Owner access
 
-Use https://mooncrabsiargao.com/admin or the **Admin login** link in the website footer. `/admin` redirects to the protected `/manage` dashboard on the same domain. Username is `admin`; the supplied bootstrap password is stored only as a secure hash and must be changed after first login. Sessions use 8-hour, HttpOnly, Secure, SameSite cookies; login attempts are limited and mutations check Origin. The existing private bearer key remains available as a recovery/API option.
+Use https://mooncrabsiargao.com/admin or the **Admin login** link in the website footer. `/admin` is the protected owner dashboard. Legacy `/manage` links redirect there. Username is `admin`; the supplied bootstrap password is stored only as a secure hash and must be changed after first login. Sessions use 8-hour, HttpOnly, Secure, SameSite cookies; login attempts are limited and mutations check Origin. The existing private bearer key remains available as a recovery/API option.
 
 The dashboard supports date ranges, manual/confirmed/imported indicators, pending inquiries, stored guest/phone/price details, deposit verification before confirmation, pricing/contact controls, password changes, calendar connection status, and safe email retries. Select any displayed date to choose Airbnb, Booking.com, or direct booking and leave private notes, then use **Save changes**. Source labels and notes are independent of guest availability; use **Unavailable for guests** to manually block or reopen an eligible night. Imported and confirmed dates remain protected while their notes stay editable. Never share the owner key with guests.
+
+Use **Finance Tracker** to record monthly income and expenses, reconcile payer contributions, and export a filtered CSV. Transaction dates determine the month. Use **Credentials & Properties** to save property information and manage private original files, and use your MFA-protected password manager for actual credentials. **Project Management** includes project workspaces with tasks, checklists, milestones, notes, links, and shared attachments. **Notification Settings** controls the owner recipient and connection test.
 
 ## Integrations
 
@@ -50,6 +52,6 @@ Airbnb and Booking.com buttons use the owner’s exact listing URLs. Nikki's fiv
 
 Public: `GET /api/config`, `GET /api/quote`, `GET /api/availability`, `POST /api/booking-requests`.
 
-Owner: `/api/admin/session`, `/api/admin/settings`, `/api/admin/availability`, `/api/admin/booking-requests`, `/api/admin/calendar-sync`, `/api/admin/email-outbox`. Owner APIs enforce server authorization. Availability exposes no guest identity. Requests use UUID idempotency, validation and rate limiting; request records expire 90 days after checkout. Private feed URLs, SMTP secrets, passwords and database credentials stay server-side.
+Owner: `/api/admin/session`, `/api/admin/settings`, `/api/admin/availability`, `/api/admin/booking-requests`, `/api/admin/calendar-sync`, `/api/admin/email-outbox`, and `/api/admin/workspace`. Owner APIs enforce server authorization. Availability exposes no guest identity. Requests use UUID idempotency, validation and rate limiting; request records expire 90 days after checkout. Private feed URLs, SMTP secrets, passwords and database credentials stay server-side.
 
 See [brand provenance](BRAND.md), [destination image credits](content/DESTINATION-PHOTO-CREDITS.md), and [travel research](content/EXPLORE-SIARGAO.md). No synthetic property or destination photos are used. The guest Wi-Fi PDF is not published.

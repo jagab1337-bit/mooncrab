@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   CLAIM_EMAIL_SCRIPT, EMAIL_JOB_PREFIX, EMAIL_OUTBOX_INDEX, EMAIL_PENDING_KEY,
-  ENQUEUE_EMAILS_SCRIPT, FINISH_EMAIL_SCRIPT, RETRY_EMAIL_SCRIPT,
+  ENQUEUE_EMAILS_SCRIPT, FINISH_EMAIL_SCRIPT, RETRY_EMAIL_SCRIPT, NOTIFICATION_SETTINGS_KEY,
   createEmailOutboxHandler, drainEmailOutbox, enqueueBookingEmails, processBookingEmails,
   smtpReadiness,
 } from '../server/email-outbox.ts';
@@ -32,7 +32,10 @@ function store() {
   const index = (key: string) => { if (!indexes.has(key)) indexes.set(key, new Map()); return indexes.get(key)!; };
   let failFinish = false;
   const command: RedisCommand = async args => {
-    if (args[0] === 'GET') return values.get(String(args[1])) ?? null;
+    if (args[0] === 'GET') {
+      if (args[1] === NOTIFICATION_SETTINGS_KEY) return JSON.stringify({enabled:true,recipient:'greetings@mooncrabsiargao.com'});
+      return values.get(String(args[1])) ?? null;
+    }
     if (args[0] === 'ZRANGE' || args[0] === 'ZREVRANGE') {
       const rows = [...index(String(args[1]))].sort((a, b) => a[1] - b[1]);
       if (args[0] === 'ZREVRANGE') rows.reverse();
@@ -99,7 +102,7 @@ test('guest and owner templates preserve actual quote, escape guest HTML, and di
   assert.match(guest.html, /https:\/\/wa\.me\/639625284264\?text=/);
   assert.match(guest.html, /Facebook · open our page/);
   assert.match(guest.text, /Please do not reply/);
-  assert.match(owner.html, /href="https:\/\/mooncrabsiargao\.com\/admin"/);
+  assert.match(owner.html, /href="https:\/\/mooncrabsiargao\.com\/admin#request-/);
   assert.match(owner.text, /Dashboard: https:\/\/mooncrabsiargao\.com\/admin/);
   assert.doesNotMatch(owner.html + owner.text, /admin\.mooncrabsiargao\.com/);
 });
@@ -133,7 +136,7 @@ test('concurrent drains send each stable job once and report SMTP acceptance, no
   await Promise.all([processBookingEmails(id, { env, command: memory.command, send, now: () => fixedNow }), processBookingEmails(id, { env, command: memory.command, send, now: () => fixedNow })]);
   assert.equal(sent.length, 2);
   assert.deepEqual(new Set(sent.map(message => message.to)), new Set(['ana@example.com', 'greetings@mooncrabsiargao.com']));
-  assert.ok(sent.every(message => message.from === 'Moon Crab Siargao <bookings@mooncrabsiargao.com>'));
+  assert.ok(sent.every(message => message.from.endsWith('<bookings@mooncrabsiargao.com>')));
   for (const raw of memory.values.values()) assert.equal((JSON.parse(raw) as EmailJob).status, 'accepted');
   await processBookingEmails(id, { env, command: memory.command, send, now: () => fixedNow });
   assert.equal(sent.length, 2);

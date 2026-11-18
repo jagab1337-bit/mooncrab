@@ -38,3 +38,12 @@ Two protected daily schedules are configured: external calendar imports around 0
 The owner-supplied Airbnb and Booking.com export feeds are configured as server-only production Secrets. Both exports have been retrieved and parsed successfully. Imported nights appear in the public booking calendar alongside manual and confirmed blocks; refresh status is available in the owner dashboard. See [external calendars](docs/external-calendars.md) for the import schedule and reconciliation behavior.
 
 Spacemail SMTP credentials and sender verification remain pending. Actual email sending is not configured, and no actual test email has been sent yet. See [Spacemail](docs/transactional-email.md) for setup. SMTP acceptance is tracked separately from confirmed delivery.
+
+
+## Private owner workspace
+
+`/admin/finance`, `/admin/vault`, `/admin/projects`, and `/admin/settings/notifications` use the existing owner session. Finance, property, and project updates use Redis compare-and-set and record revisions to protect concurrent edits. The one-time November payable import is sent through the authorized API and stored in Redis. Do not commit the financial source data to Git.
+
+The file library stores the original bytes encrypted with AES-256-GCM. Each file has an independent nonce and SHA-256 checksum. Files are served only through the authenticated API and have no public URL. Configure `ADMIN_WORKSPACE_ENCRYPTION_KEY` as a Vercel Production Secret containing a 32-byte base64url key. Back up the key in the business password manager. Existing files require the same key across deployments. Preserve the key during environment or project moves. Key rotation requires re-encrypting existing originals before changing the secret. Files are limited to 2 MiB each and 48 MiB total on the existing store.
+
+The Credentials section launches an established password manager. Configure business access, MFA, reveal and audit policies in that provider. The Mooncrab admin has no password capture or reveal endpoint for third-party credentials.

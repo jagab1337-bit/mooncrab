@@ -1,8 +1,8 @@
 # Mooncrab booking email
 
-The booking creation transaction stores the pending request and two email jobs together in the existing Redis database. One job acknowledges the guest; the other notifies the configured owner notification address (initially `greetings@mooncrabsiargao.com`). No email is generated for a request that failed validation or persistence. The stored server-calculated quote is used in both messages.
+The booking creation transaction stores the pending request and two email jobs together in the existing Redis database. One job acknowledges the guest; the other notifies the configured owner notification address. No email is generated for a request that failed validation or persistence. The stored server-calculated quote is used in both messages.
 
-The application sends through SMTP as **Moon Crab Siargao <bookings@mooncrabsiargao.com>**. It does not use a different sender when that alias is unavailable. The connected Spacemail tool can send from its current mailbox, but does not provide the sender/HTML/server-runtime configuration required for this automation or mailbox-signature management.
+Owner notifications use **Moon Crab Bookings <bookings@mooncrabsiargao.com>**. Guest acknowledgments use the same address with the Moon Crab Siargao display name. It does not use a different sender when that alias is unavailable. The connected Spacemail tool can send from its current mailbox, but does not provide the sender/HTML/server-runtime configuration required for this automation or mailbox-signature management.
 
 ## Required production configuration
 
@@ -25,6 +25,8 @@ In Spacemail Manager, locate the mailbox, choose its three-dot menu, and use **S
 Sources checked November 18, 2026: [Spacemail client settings](https://www.spaceship.com/knowledgebase/connect-spacemail-to-email-client/) and [Spacemail aliases](https://www.spaceship.com/en-GB/knowledgebase/setup-email-aliases-spacemail/).
 
 ## Owner controls and reliability
+
+Open **Notification Settings** at `/admin/settings/notifications`. Enter the address that should receive new booking inquiries and enable notifications. An empty recipient is valid while notifications are disabled. The test button sends only to the saved recipient and records the provider response and timestamp. Owner jobs wait in the existing outbox until notifications are enabled and SMTP is configured. You can process saved jobs from the dashboard. Guest acknowledgments remain scheduled separately.
 
 `GET /api/admin/email-outbox` requires an owner session or the existing private bearer key. It returns SMTP readiness, blocked reasons, the most recent 50 retained job summaries, and counts for those summaries. It does not expose SMTP credentials, guest email bodies, or recipient addresses.
 

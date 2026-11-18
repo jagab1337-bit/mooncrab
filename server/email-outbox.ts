@@ -1,6 +1,6 @@
 import { randomUUID, timingSafeEqual } from 'node:crypto';
 import nodemailer from 'nodemailer';
-import { authorizeAdmin } from './admin-auth.ts';
+import { authorizeAdmin, sameOrigin } from './admin-auth.ts';
 import { configured, createRedisCommand, setHeaders, unavailable } from './availability.ts';
 import type { ApiRequest, ApiResponse, Environment, HandlerOptions, RedisCommand } from './availability.ts';
 import { bookingEmail, EMAIL_CONTACTS } from './email-templates.ts';
@@ -10,6 +10,25 @@ import { readBusinessSettings } from './business-settings.ts';
 export const EMAIL_JOB_PREFIX = 'mooncrab:email-job:';
 export const EMAIL_OUTBOX_INDEX = 'mooncrab:email-outbox';
 export const EMAIL_PENDING_KEY = 'mooncrab:email-pending';
+export const NOTIFICATION_SETTINGS_KEY = 'mooncrab:notification-settings';
+const NOTIFICATION_TEST_KEY = 'mooncrab:notification-test';
+type NotificationSettings = { enabled: boolean; recipient: string };
+
+function validNotificationSettings(value: unknown): value is NotificationSettings {
+  if (!value || typeof value !== 'object') return false;
+  const { enabled, recipient } = value as NotificationSettings;
+  return typeof enabled === 'boolean' && typeof recipient === 'string' && recipient.length <= 254
+    && (recipient === '' ? !enabled : /^[^\s@<>(),;:"\\]+@[a-z0-9-]+(?:\.[a-z0-9-]+)+$/i.test(recipient));
+}
+
+async function readNotificationSettings(command: RedisCommand): Promise<NotificationSettings> {
+  const raw = await command(['GET', NOTIFICATION_SETTINGS_KEY]);
+  if (raw === null) return { enabled: false, recipient: '' };
+  const data: unknown = typeof raw === 'string' ? JSON.parse(raw) : null;
+  if (!validNotificationSettings(data)) throw new Error('Invalid notification settings');
+  return data;
+}
+
 const MAX_ATTEMPTS = 3;
 const CLAIM_MILLISECONDS = 90_000;
 const JOB_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}:(guest|owner)$/i;
@@ -133,13 +152,16 @@ async function processJob(id: string, options: EmailOptions): Promise<EmailState
   if (!smtpReadiness(env).configured) return 'skipped';
   const command = options.command ?? createRedisCommand(env);
   const now = options.now ?? (() => new Date());
+  const isOwner = id.endsWith(':owner');
+  const notification = isOwner ? await readNotificationSettings(command) : null;
+  if (notification && !notification.enabled) return 'skipped';
   const settings = await readBusinessSettings(command);
   const started = now();
   const token = randomUUID();
   const raw = await command(['EVAL', CLAIM_EMAIL_SCRIPT, 2, `${EMAIL_JOB_PREFIX}${id}`, EMAIL_PENDING_KEY, id, started.getTime(), started.toISOString(), CLAIM_MILLISECONDS, token, MAX_ATTEMPTS]);
   if (raw === null) return 'skipped';
   const job = safeJob(raw);
-  const recipient = job.kind === 'owner' ? settings.contacts.notificationEmail : job.booking.email;
+  const recipient = notification?.recipient ?? job.booking.email;
   const message = bookingEmail(job.booking, job.kind, {
     ...EMAIL_CONTACTS, phone: settings.contacts.phone, whatsapp: settings.contacts.whatsappUrl,
     facebook: settings.contacts.facebookUrl, instagram: settings.contacts.instagramUrl,
@@ -147,7 +169,7 @@ async function processJob(id: string, options: EmailOptions): Promise<EmailState
   });
   try {
     const result = await (options.send ?? smtpSender(env))({
-      from: `Moon Crab Siargao <${EMAIL_CONTACTS.bookings}>`, to: recipient,
+      from: `${isOwner ? 'Moon Crab Bookings' : 'Moon Crab Siargao'} <${EMAIL_CONTACTS.bookings}>`, to: recipient,
       ...message, messageId: `<${job.id.replace(':', '.')}@mooncrabsiargao.com>`,
     });
     if (!result.accepted.length || result.rejected?.length) {
@@ -211,13 +233,51 @@ export function createEmailOutboxHandler(options: EmailOptions = {}) {
     if (!configured(env)) { unavailable(res); return; }
     try {
       if (cron) { res.status(200).json(await drainEmailOutbox({ ...options, env, command })); return; }
+      if (req.query?.settings === '1') {
+        const smtp = smtpReadiness(env);
+        let settings = await readNotificationSettings(command);
+        if (req.method === 'POST') {
+          if (!sameOrigin(req)) { res.status(403).json({ error: 'Use the administrator portal for notification settings.' }); return; }
+          const contentType = req.headers['content-type'];
+          if (typeof contentType !== 'string' || contentType.split(';')[0] !== 'application/json') {
+            res.status(415).json({ error: 'Send an application/json request.' }); return;
+          }
+          const body = req.body as { action?: unknown; settings?: unknown } | undefined;
+          if (body?.action === 'save') {
+            if (!validNotificationSettings(body.settings)) { res.status(400).json({ error: 'Enter a valid recipient email or disable notifications and clear the address.' }); return; }
+            settings = { enabled: body.settings.enabled, recipient: body.settings.recipient };
+            await command(['SET', NOTIFICATION_SETTINGS_KEY, JSON.stringify(settings)]);
+          } else if (body?.action === 'test') {
+            if (!settings.recipient || !smtp.configured) { res.status(409).json({ error: smtp.reason || 'Save a recipient address first.' }); return; }
+            const claim = await command(['SET', 'mooncrab:notification-test-lock', '1', 'NX', 'EX', 60]);
+            if (claim !== 'OK') { res.status(429).json({ error: 'Wait one minute before sending another test.' }); return; }
+            const id = randomUUID();
+            let status = 'unknown';
+            try {
+              const result = await (options.send ?? smtpSender(env))({
+                from: `Moon Crab Bookings <${EMAIL_CONTACTS.bookings}>`, to: settings.recipient,
+                subject: 'Moon Crab booking notification test',
+                text: 'This test was sent from your Moon Crab notification settings.',
+                html: '<p>This test was sent from your Moon Crab notification settings.</p>',
+                messageId: `<test.${id}@mooncrabsiargao.com>`,
+              });
+              status = result.accepted.length && !result.rejected?.length ? 'accepted' : 'failed';
+            } catch (error) {
+              if (definiteFailure(error)) status = 'failed';
+            }
+            await command(['SET', NOTIFICATION_TEST_KEY, JSON.stringify({ status, at: (options.now ?? (() => new Date()))().toISOString() })]);
+          } else { res.status(400).json({ error: 'Choose save or test.' }); return; }
+        }
+        const lastTest = await command(['GET', NOTIFICATION_TEST_KEY]);
+        res.status(200).json({ ...settings, smtp, lastTest: typeof lastTest === 'string' ? JSON.parse(lastTest) : null }); return;
+      }
       if (req.method === 'GET') {
         const ids = await command(['ZREVRANGE', EMAIL_OUTBOX_INDEX, 0, 49]);
         if (!Array.isArray(ids) || ids.some(id => typeof id !== 'string' || !JOB_ID.test(id))) throw new Error('Invalid outbox index');
         const rows = await Promise.all(ids.map(id => command(['GET', `${EMAIL_JOB_PREFIX}${id}`])));
         const jobs = rows.filter(value => value !== null).map(value => {
-          const { id, bookingId, kind, status, attempts, createdAt, updatedAt, acceptedAt, lastError } = safeJob(value);
-          return { id, bookingId, kind, status, attempts, createdAt, updatedAt, acceptedAt, lastError, safeToRetry: status === 'failed' && attempts < MAX_ATTEMPTS };
+          const { id, bookingId, kind, status, attempts, createdAt, updatedAt, acceptedAt, lastError, attemptStartedAt } = safeJob(value);
+          return { id, bookingId, kind, status, attempts, createdAt, updatedAt, acceptedAt, lastError, lastAttempt: attemptStartedAt ? new Date(attemptStartedAt).toISOString() : undefined, safeToRetry: status === 'failed' && attempts < MAX_ATTEMPTS };
         });
         const smtp = smtpReadiness(env);
         const counts = { queued: 0, sending: 0, accepted: 0, failed: 0, unknown: 0 };
