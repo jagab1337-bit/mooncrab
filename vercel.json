@@ -6,6 +6,9 @@
   "redirects": [
     { "source": "/", "has": [{ "type": "host", "value": "booking.mooncrabsiargao.com" }], "destination": "https://mooncrabsiargao.com/booking", "permanent": true },
     { "source": "/booking", "has": [{ "type": "host", "value": "booking.mooncrabsiargao.com" }], "destination": "https://mooncrabsiargao.com/booking", "permanent": true },
+    { "source": "/admin/:path*", "has": [{ "type": "host", "value": "booking.mooncrabsiargao.com" }], "destination": "https://mooncrabsiargao.com/admin/:path*", "permanent": true },
+    { "source": "/manage", "has": [{ "type": "host", "value": "booking.mooncrabsiargao.com" }], "destination": "https://mooncrabsiargao.com/admin", "permanent": true },
+    { "source": "/explore-siargao/:path*", "has": [{ "type": "host", "value": "booking.mooncrabsiargao.com" }], "destination": "https://mooncrabsiargao.com/explore-siargao/:path*", "permanent": true },
     { "source": "/booking/", "destination": "/booking", "permanent": true },
     { "source": "/admin/", "destination": "/admin", "permanent": true },
     { "source": "/manage", "destination": "/admin", "permanent": false },
