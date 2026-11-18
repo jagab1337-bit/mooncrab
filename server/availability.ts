@@ -267,6 +267,7 @@ const UPDATE_WITH_DETAILS_SCRIPT = `
 local add = cjson.decode(ARGV[1])
 local remove = cjson.decode(ARGV[2])
 local details = cjson.decode(ARGV[4])
+local clearDetails = cjson.decode(ARGV[5])
 local expected = { 'set', 'string', 'hash' }
 for index, key in ipairs(KEYS) do
   local stored = redis.call('TYPE', key).ok
@@ -275,10 +276,8 @@ end
 for _, date in ipairs(add) do redis.call('SADD', KEYS[1], date) end
 for _, date in ipairs(remove) do redis.call('SREM', KEYS[1], date) end
 if ARGV[3] == '1' then redis.call('SET', KEYS[2], '1') end
-for date, detail in pairs(details) do
-  if detail == cjson.null then redis.call('HDEL', KEYS[3], date)
-  else redis.call('HSET', KEYS[3], date, cjson.encode(detail)) end
-end
+for _, date in ipairs(clearDetails) do redis.call('HDEL', KEYS[3], date) end
+for date, detail in pairs(details) do redis.call('HSET', KEYS[3], date, cjson.encode(detail)) end
 return 1
 `;
 
@@ -315,8 +314,12 @@ export function createAdminAvailabilityHandler(options: HandlerOptions = {}) {
           return;
         }
         if (Object.keys(update.dateDetails).length) {
+          const entries = Object.entries(update.dateDetails);
+          const details = Object.fromEntries(entries.filter(([, detail]) => detail !== null));
+          // Keep deletions explicit; Redis cjson may omit null-valued object members.
+          const clearDetails = entries.filter(([, detail]) => detail === null).map(([date]) => date);
           await command(['EVAL', UPDATE_WITH_DETAILS_SCRIPT, 3, BLOCKED_KEY, INITIALIZED_KEY, DATE_DETAILS_KEY,
-            JSON.stringify(update.add), JSON.stringify(update.remove), update.initialize ? '1' : '0', JSON.stringify(update.dateDetails)]);
+            JSON.stringify(update.add), JSON.stringify(update.remove), update.initialize ? '1' : '0', JSON.stringify(details), JSON.stringify(clearDetails)]);
         } else {
           await command(['EVAL', UPDATE_SCRIPT, 2, BLOCKED_KEY, INITIALIZED_KEY,
             JSON.stringify(update.add), JSON.stringify(update.remove), update.initialize ? '1' : '0']);

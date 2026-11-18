@@ -58,8 +58,10 @@ function memoryCalendar(initialized = true, dates: string[] = []) {
       if (Number(args[2]) === 3) {
         assert.equal(args[5], DATE_DETAILS_KEY);
         const changes = JSON.parse(String(args[offset + 3]));
+        for (const date of JSON.parse(String(args[offset + 4]))) details.delete(date);
         for (const [date, detail] of Object.entries(changes)) {
-          if (detail === null) details.delete(date); else details.set(date, JSON.stringify(detail));
+          assert.notEqual(detail, null, 'Lua must not depend on decoded JSON null entries');
+          details.set(date, JSON.stringify(detail));
         }
       }
       return 1;
@@ -293,6 +295,9 @@ test('owner saves blocking and annotations in one transaction, clears annotation
   await handler(adminRequest({method:'PATCH',body:{dateDetails:{'2026-11-22':null}}}),cleared);
   assert.equal(cleared.code,200);
   assert.equal(store.details.has('2026-11-22'),false);
+  const clearCommand = store.commands.filter(call => call[0] === 'EVAL').at(-1)!;
+  assert.deepEqual(JSON.parse(String(clearCommand[9])), {});
+  assert.deepEqual(JSON.parse(String(clearCommand[10])), ['2026-11-22']);
   assert.deepEqual([...store.imported],['2026-11-22']);
   assert.deepEqual([...store.blocked],['2026-11-23']);
 });
