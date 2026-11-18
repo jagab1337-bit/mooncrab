@@ -10,6 +10,7 @@ const categories: Record<Kind, string[]> = {
   in: ['Daily accommodation', 'Weekly accommodation', 'Monthly accommodation', 'Booking payment', 'Advance payment', 'Security deposit', 'Other income', 'Refund received'],
   out: ['Transportation', 'Rent & deposit', 'Furniture & decor', 'Utilities', 'Repairs & maintenance', 'Supplies', 'Property & garden', 'Other expense'],
 };
+const customCategoryOption = ' '; // Stored categories are trimmed and nonempty.
 const formatMonth = new Intl.DateTimeFormat('en-PH', { month:'long', year:'numeric', timeZone:'UTC' });
 const monthNames = Array.from({ length:12 }, (_, index) =>
   new Intl.DateTimeFormat('en-PH', { month:'long', timeZone:'UTC' }).format(new Date(Date.UTC(2026, index, 1))));
@@ -153,9 +154,9 @@ export async function renderFinance(container: HTMLElement, request: AdminFetch)
     const partyFilter = get<HTMLSelectElement>('[data-party]');
     const sort = get<HTMLSelectElement>('[data-sort]');
     const availableCategories = () => [...new Set([...categories[kind], ...records.filter(row => row.kind === kind).map(row => row.category)])].sort();
-    function updateOptions(select: HTMLSelectElement, values: string[], all: string): void {
+    function updateOptions(select: HTMLSelectElement, values: string[], placeholder: string): void {
       const selected = select.value;
-      select.replaceChildren(new Option(all, ''), ...values.map(value => new Option(value)));
+      select.replaceChildren(new Option(placeholder, ''), ...values.map(value => new Option(value)));
       select.value = values.includes(selected) ? selected : '';
     }
 
@@ -196,8 +197,8 @@ export async function renderFinance(container: HTMLElement, request: AdminFetch)
       editor.innerHTML = `<form class="workspace-form workspace-entry finance-editor">
         <h4 class="workspace-full">${row ? 'Edit transaction' : 'New transaction'}</h4>
         <label>Transaction<input name="name" maxlength="120" required value="${escape(row?.name)}"></label>
-        <label>Category<input name="category" list="finance-categories-${kind}" required maxlength="80" value="${escape(row?.category)}"></label>
-        <datalist id="finance-categories-${kind}">${availableCategories().map(value => `<option value="${escape(value)}"></option>`).join('')}</datalist>
+        <label>Category<select name="category" required></select></label>
+        <label class="workspace-full" hidden>Custom category<input name="customCategory" maxlength="80" required disabled></label>
         <label>Amount (PHP)<input name="amount" required type="number" step="0.01" min="0.01" value="${row ? (row.cents / 100).toFixed(2) : ''}"></label>
         <label>Date<input name="date" type="date" required value="${row?.date ?? (month === today.slice(0, 7) ? today : month + '-01')}"></label>
         <fieldset class="workspace-full finance-people-fieldset">
@@ -211,6 +212,18 @@ export async function renderFinance(container: HTMLElement, request: AdminFetch)
         <div class="workspace-actions workspace-full"><button class="owner-primary" type="submit">Save transaction</button><button type="button" data-cancel>Cancel</button></div>
       </form>`;
       const form = editor.querySelector('form')!;
+      const categorySelect = form.querySelector<HTMLSelectElement>('[name=category]')!;
+      const customCategory = form.querySelector<HTMLInputElement>('[name=customCategory]')!;
+      updateOptions(categorySelect, availableCategories(), 'Choose a category');
+      categorySelect.add(new Option('Add custom category…', customCategoryOption));
+      categorySelect.value = row?.category ?? '';
+      categorySelect.onchange = () => {
+        const custom = categorySelect.value === customCategoryOption;
+        customCategory.disabled = !custom;
+        customCategory.parentElement!.hidden = !custom;
+        if (custom) customCategory.focus();
+        dirty = true;
+      };
       const contributions = row?.parties.map(party => ({ personId:party.personId, amount:(party.cents / 100).toFixed(2) }))
         ?? [{ personId:'', amount:'' }];
       const names = form.querySelector<HTMLInputElement>('[data-name-search]')!;
@@ -295,7 +308,13 @@ export async function renderFinance(container: HTMLElement, request: AdminFetch)
         if (saving) return;
         const data = new FormData(form);
         const value = (key: string) => String(data.get(key) ?? '').trim();
+        const selectedCategory = value(categorySelect.value === customCategoryOption ? 'customCategory' : 'category');
         const cents = parseCents(value('amount'));
+        if (!selectedCategory) {
+          status.textContent = 'Enter a category.';
+          customCategory.focus();
+          return;
+        }
         const parties = contributions.map(entry => ({
           personId:entry.personId, name:people.get(entry.personId)?.name ?? '',
           cents:contributions.length === 1 ? cents : parseCents(entry.amount),
@@ -313,7 +332,7 @@ export async function renderFinance(container: HTMLElement, request: AdminFetch)
         buttons.forEach(button => { button.disabled = true; });
         try {
           const date = value('date');
-          const result = await request(endpoint, 'POST', { action:'save', id:row?.id, revision:row?.revision, record:{ kind, name:value('name'), category:value('category'), cents, date, notes:value('notes'), parties } });
+          const result = await request(endpoint, 'POST', { action:'save', id:row?.id, revision:row?.revision, record:{ kind, name:value('name'), category:selectedCategory, cents, date, notes:value('notes'), parties } });
           apply(result);
           close();
           draw();
@@ -328,7 +347,8 @@ export async function renderFinance(container: HTMLElement, request: AdminFetch)
     get('[data-export]').onclick = () => downloadCsv(shown.map(row => ({
       ...row, parties:row.parties.map(party => ({ ...party, name:partyName(party) })),
     })), kind, month);
-    for (const control of [search, category, partyFilter, sort]) control.addEventListener('input', draw);
+    category.addEventListener('change', draw);
+    for (const control of [search, partyFilter, sort]) control.addEventListener('input', draw);
     get('[data-table]').onclick = async event => {
       const button = (event.target as HTMLElement).closest<HTMLButtonElement>('button');
       const row = records.find(item => item.id === (button?.dataset.editId ?? button?.dataset.deleteId));

@@ -96,13 +96,55 @@ test('two independent ledgers and one month picker on desktop and phone', async 
   expect(titleFont).toContain('Cormorant Garamond');
 });
 
+test('both ledgers can select, save, and filter preset and custom categories', async ({ page }) => {
+  const { receivable, payable } = await openLedger(page);
+  for (const [ledger, original, name, preset, custom, otherPreset] of [
+    [receivable, 'Room payment', 'Group payment', 'Booking payment', 'Group stays', 'Utilities'],
+    [payable, 'Ride', 'Laundry service', 'Supplies', 'Laundry & linen', 'Booking payment'],
+  ] as const) {
+    const editor = ledger.locator('.finance-editor');
+    const category = editor.getByRole('combobox', {name:'Category', exact:true});
+    const filter = ledger.getByRole('combobox', {name:'Category', exact:true}).first();
+    const row = ledger.getByRole('row', {name:new RegExp(name)});
+    await ledger.getByRole('button', {name:'Add Transaction', exact:true}).click();
+    await expect(category).toHaveValue('');
+    await expect(category.locator('option').filter({hasText:otherPreset})).toHaveCount(0);
+    await category.selectOption(preset);
+    await editor.getByLabel('Transaction', {exact:true}).fill(name);
+    await editor.getByLabel('Amount (PHP)', {exact:true}).fill('100');
+    await editor.getByRole('combobox', {name:'Person 1', exact:true}).selectOption({label:'Kile'});
+    await editor.getByRole('button', {name:'Save transaction'}).click();
+    await expect(row).toContainText(preset);
+
+    await row.getByRole('button', {name:'Edit', exact:true}).click();
+    await expect(category).toHaveValue(preset);
+    await category.selectOption({label:'Add custom category…'});
+    const customField = editor.getByLabel('Custom category', {exact:true});
+    await expect(customField).toBeFocused();
+    await customField.fill(custom);
+    await editor.getByRole('button', {name:'Save transaction'}).click();
+    await expect(row).toContainText(custom);
+
+    await page.reload();
+    await expect(row).toContainText(custom);
+    await filter.selectOption(custom);
+    await expect(ledger.getByRole('row', {name:new RegExp(original)})).toBeHidden();
+    await expect(row).toBeVisible();
+    await row.getByRole('button', {name:'Edit', exact:true}).click();
+    await expect(category).toHaveValue(custom);
+    await expect(customField).toBeHidden();
+    await editor.getByRole('button', {name:'Cancel'}).click();
+    await filter.selectOption('');
+  }
+});
+
 test('person IDs survive rename and archive, split totals and historical rows survive', async ({ page }) => {
   const { receivable, payable, state } = await openLedger(page);
   const original = state().records[0];
   await receivable.getByRole('button', {name:'Add Transaction', exact:true}).click();
   const editor = receivable.locator('.finance-editor');
   await editor.getByLabel('Transaction', {exact:true}).fill('Test income');
-  await editor.getByLabel('Category', {exact:true}).fill('Booking payment');
+  await editor.getByRole('combobox', {name:'Category', exact:true}).selectOption('Booking payment');
   await editor.getByLabel('Amount (PHP)', {exact:true}).fill('600');
   await editor.getByRole('combobox', {name:'Person 1', exact:true}).selectOption('new');
   const dialog = page.getByRole('dialog', {name:'People directory'});
