@@ -90,6 +90,16 @@ test('feed allowlist rejects SSRF, credentials, provider lookalikes, ports and u
   assert.throws(() => validateCalendarUrl('booking', 'https://www.booking.com/hotel/ph/moon-crab.html'));
 });
 
+test('Booking.com accepts query-token export endpoints without accepting lookalike paths', () => {
+  for (const path of ['/v1/export?t=example-only', '/v1/export/?t=example-only', '/v1/export/example.ics']) {
+    const supplied = `https://ical.booking.com${path}`;
+    assert.equal(validateCalendarUrl('booking', supplied).href, supplied);
+  }
+  for (const path of ['/v1/exported?t=example-only', '/v1/export-other?t=example-only', '/v1/export/../../rooms']) {
+    assert.throws(() => validateCalendarUrl('booking', `https://ical.booking.com${path}`));
+  }
+});
+
 test('successful snapshot import atomically blocks nights while preserving manual and confirmed dates', async () => {
   const redis = fakeRedis();
   let requests = 0;

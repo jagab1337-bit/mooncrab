@@ -7,19 +7,19 @@ Mooncrab supports **periodic, import-only iCalendar snapshots** for the existing
 Set these private server-side Vercel environment variables for production, then redeploy:
 
 - `AIRBNB_ICAL_URL`: KASAG's private Airbnb export URL, using `https://www.airbnb.com/calendar/ical/… .ics` (without the space).
-- `BOOKING_COM_ICAL_URL`: KASAG's private Booking.com export URL from `ical.booking.com/v1/export/…` or `admin.booking.com/hotel/hoteladmin/ical.html`.
+- `BOOKING_COM_ICAL_URL`: KASAG's private Booking.com export URL from `ical.booking.com/v1/export?t=…`, `ical.booking.com/v1/export/…`, or `admin.booking.com/hotel/hoteladmin/ical.html`.
 - `CRON_SECRET`: a long random value, if scheduling the protected synchronization endpoint.
 
 The URLs are sensitive credentials. Never put them in the repository, chat, browser configuration, public environment variables, logs or screenshots. Configure only the exports for the single KASAG room. If a provider supplies a different export hostname, review and add that exact provider-owned host to the server allowlist; do not disable URL validation.
 
-Airbnb's public listing URL and Booking.com's property listing URL are **not calendar feeds**. Private export links must be obtained from the owner's host/extranet account. No private feeds have been supplied in this session, so no live platform synchronization can be claimed.
+Airbnb's public listing URL and Booking.com's property listing URL are **not calendar feeds**. The owner supplied KASAG's private Airbnb and Booking.com exports on November 18, 2026. Both exports were retrieved and parsed successfully, and their URLs are stored as server-only production Secrets. Connection status and the latest completed import are visible in the owner dashboard under **Calendar & email connections**.
 
 ## Operation
 
 - Authenticated `GET /api/admin/calendar-sync` returns each source's configured flag, last attempt, last success, stale flag, event count and safe error code. No feed URL or guest notes are returned.
 - Authenticated `POST /api/admin/calendar-sync` imports the configured sources and returns updated status.
 - A scheduled server request can use `GET /api/admin/calendar-sync?action=sync` with `Authorization: Bearer <CRON_SECRET>`. Without that secret, GET only reads status for an authenticated administrator. Do not publish a public trigger URL containing the secret.
-- The intended minimum schedule on a free Vercel Hobby plan is once daily; the administrator can refresh manually before agreeing a booking. A schedule is active only after it is actually added to deployment configuration. The stale indicator turns on after 26 hours without a successful source import.
+- The production schedule imports once daily around 03:00 Asia/Manila; Vercel Hobby may run it within that hourly window. The administrator can use **Refresh external calendars** in the dashboard before agreeing a booking. The stale indicator turns on after 26 hours without a successful source import.
 
 Each successful **complete** snapshot reconciles source event IDs, updated dates and cancellations. Checkout dates are exclusive. The atomic Redis update changes only `mooncrab:imported-dates`; manually blocked and directly confirmed nights remain intact. The public calendar and confirmation conflict checks include the imported set.
 

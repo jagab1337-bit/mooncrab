@@ -39,4 +39,6 @@ Recheck Vercel Domains for valid DNS and HTTPS after saving. `/manage` on the pr
 
 Two protected daily schedules are configured: external calendar imports around 03:00 and email outbox draining around 03:15 Asia/Manila. Vercel Hobby schedules may run within their hourly window. `CRON_SECRET` is stored as a Vercel Secret. New requests also attempt email processing immediately after persistence; owner controls can run imports/drains manually.
 
-No private Airbnb/Booking.com feeds or Spacemail SMTP credentials have been supplied. Feed imports and actual email sending remain waiting for those values and sender verification. See [external calendars](docs/external-calendars.md) and [Spacemail](docs/transactional-email.md) for exact private variables and setup. SMTP acceptance is tracked separately from confirmed delivery. No actual test email has been sent yet.
+The owner-supplied Airbnb and Booking.com export feeds are configured as server-only production Secrets. Both exports have been retrieved and parsed successfully. Imported nights appear in the public booking calendar alongside manual and confirmed blocks; refresh status is available in the owner dashboard. See [external calendars](docs/external-calendars.md) for the import schedule and reconciliation behavior.
+
+Spacemail SMTP credentials and sender verification remain pending. Actual email sending is not configured, and no actual test email has been sent yet. See [Spacemail](docs/transactional-email.md) for setup. SMTP acceptance is tracked separately from confirmed delivery.

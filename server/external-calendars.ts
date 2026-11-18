@@ -59,7 +59,8 @@ export function validateCalendarUrl(source: CalendarSource, value: string): URL 
     : ['ical.booking.com', 'admin.booking.com'];
   if (!allowed.includes(url.hostname.toLowerCase())) throw new Error('invalid_feed_url');
   if (source === 'airbnb' && !/^\/calendar\/ical\/[^/]+\.ics$/.test(url.pathname)) throw new Error('invalid_feed_url');
-  if (source === 'booking' && url.hostname === 'ical.booking.com' && !url.pathname.startsWith('/v1/export/')) throw new Error('invalid_feed_url');
+  if (source === 'booking' && url.hostname === 'ical.booking.com'
+      && url.pathname !== '/v1/export' && !url.pathname.startsWith('/v1/export/')) throw new Error('invalid_feed_url');
   if (source === 'booking' && url.hostname === 'admin.booking.com' && url.pathname !== '/hotel/hoteladmin/ical.html') throw new Error('invalid_feed_url');
   return url;
 }
