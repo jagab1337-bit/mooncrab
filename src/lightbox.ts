@@ -1,6 +1,6 @@
 import './lightbox.css';
 
-const photoNames = new Set(['bedroom', 'room-entry', 'bedroom-wide', 'kitchen', 'workspace', 'dining', 'bathroom', 'exterior', 'pickup', 'pickup-detail']);
+const photoNames = new Set(['bedroom', 'room-entry', 'room-greenery', 'bedroom-wide', 'kitchen', 'workspace', 'dining', 'bathroom', 'exterior', 'pickup', 'pickup-detail']);
 
 type Photo = { link: HTMLAnchorElement; source: string; caption: string };
 

@@ -16,6 +16,7 @@ The guide specifies Tropikal, Lekton, and Arial Nova. No font files were supplie
 - `dining.webp`: `/mooncrab/77FD7618-429C-4214-9BAB-CDFF8FE4E382.PNG`
 - `bathroom.webp`: `/mooncrab/C148CE16-6BBC-4834-B89B-D01CC3128C10.PNG`
 - `exterior.webp`: `/mooncrab/F093AB54-A13A-47B1-8140-029981B37801.PNG`
+- `room-greenery.webp`: `/mooncrab/9E87BC09-3087-435F-84E5-CD1EC1CAFBF1.PNG`, the owner-selected leafy view into KASAG. The popup retains the original 1086×1448 frame, losslessly encoded as WebP.
 
 Photos are resized and compressed as WebP; no invented property imagery is used.
 
