@@ -12,3 +12,12 @@ export const escape = (value: unknown) => String(value ?? '').replace(/[&<>"']/g
 export function showError(container: HTMLElement, error: unknown): void {
   container.textContent = error instanceof Error ? error.message : 'The request failed. Try again.';
 }
+
+export function protectDraft(container: HTMLElement, hasDraft: () => boolean): void {
+  container.addEventListener('owner-before-navigate', event => {
+    if (hasDraft() && !confirm('Leave this page and discard unsaved work?')) event.preventDefault();
+  });
+  container.addEventListener('owner-has-draft', event => {
+    if (hasDraft()) event.preventDefault();
+  });
+}

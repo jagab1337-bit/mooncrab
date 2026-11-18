@@ -1,5 +1,5 @@
 import { renderFiles } from './admin-files.ts';
-import { escape, showError, workspaceUrl, type AdminFetch, type RecordIdentity } from './admin-workspace.ts';
+import { protectDraft, escape, showError, workspaceUrl, type AdminFetch, type RecordIdentity } from './admin-workspace.ts';
 
 type Property = RecordIdentity & {
   name: string; address: string; mapsUrl: string; description: string; contacts: string; notes: string;
@@ -86,9 +86,7 @@ export async function renderVault(container: HTMLElement, request: AdminFetch): 
     const found = records.find(row => row.id === id);
     if (found) open(found);
   };
-  window.addEventListener('beforeunload', event => {
-    if (container.isConnected && (dirty || busy)) { event.preventDefault(); event.returnValue = ''; }
-  });
+  protectDraft(container, () => dirty || busy);
   try { records = (await request(endpoint)).records as Property[]; draw(); status.textContent = ''; }
   catch (error) { showError(status, error); }
 }

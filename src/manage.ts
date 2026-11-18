@@ -18,8 +18,8 @@ type BookingRequest = { id: string; checkIn: string; checkOut: string; name: str
 
 /** Owner-only calendar. Credentials stay in this function's memory. */
 export async function renderManage(container: HTMLElement): Promise<void> {
-  const route = location.pathname.replace(/\/+$/, '');
-  const workspacePage = workspacePages[route as keyof typeof workspacePages];
+  const route = () => location.pathname.replace(/\/+$/, '');
+  const activePage = () => workspacePages[route() as keyof typeof workspacePages];
   let notifications = new Map<string, NotificationJob>();
   const robots = document.createElement('meta');
   robots.name = 'robots';
@@ -37,10 +37,14 @@ export async function renderManage(container: HTMLElement): Promise<void> {
   let shownMonth = firstMonth;
   let token = '';
   let authenticated = false;
+  let authState: 'checking' | 'authenticated' | 'unauthenticated' = 'checking';
+  let sessionCheck = 0;
+  let mountedUrl = location.href;
   let busy = false;
   let initialized = false;
   let initializeApproved = false;
   let requestsBusy = false;
+  let requestsLoadingAt = -1;
   let bookingRequests: BookingRequest[] = [];
   let savedDates = new Set<string>();
   let confirmedDates = new Set<string>();
@@ -67,19 +71,25 @@ export async function renderManage(container: HTMLElement): Promise<void> {
   const isBlocked = (key: string) => confirmedDates.has(key) || importedDates.has(key) || additions.has(key) || (savedDates.has(key) && !removals.has(key));
 
   container.innerHTML = `
-    <section class="owner-panel${workspacePage ? ' workspace-wide' : ''}" aria-labelledby="owner-title">
+    <section class="owner-panel${activePage() ? ' workspace-wide' : ''}" aria-labelledby="owner-title">
       <a class="owner-back" href="https://mooncrabsiargao.com/">← Back to Mooncrab</a>
       <div class="owner-heading"><p class="owner-eyebrow">MOONCRAB SIARGAO · OWNER ACCESS</p>
         <h1 id="owner-title">A little planning.<br><em>More island days.</em></h1>
         <p>Manage KASAG’s calendar. Block every existing reservation before sharing live availability with guests.</p>
       </div>
       <nav class="workspace-nav" id="workspace-nav" aria-label="Owner navigation" hidden>
-        <a href="/admin"${workspacePage ? '' : ' aria-current="page"'}>Dashboard</a>
-        ${Object.entries(workspacePages).map(([path, page]) => `<a href="${path}"${path === route ? ' aria-current="page"' : ''}>${page.label}</a>`).join('')}
+        <a href="/admin">Dashboard</a>
+        <a href="/admin#owner-requests-area">Bookings</a>
+        <a href="/admin#owner-settings-area">Settings</a>
+        ${Object.entries(workspacePages).map(([path, page]) => `<a href="${path}">${page.label}</a>`).join('')}
         <button id="workspace-sign-out" type="button">Sign out</button>
       </nav>
+      <div id="owner-session-status" class="owner-card workspace-panel" role="status">
+        <span id="owner-session-message">Checking your session…</span>
+        <button type="button" id="owner-session-retry" hidden>Try again</button>
+      </div>
       <div id="workspace-page" class="owner-card workspace-panel" hidden></div>
-      <div class="owner-card" id="owner-auth-card">
+      <div class="owner-card" id="owner-auth-card" hidden>
         <form id="owner-login" class="owner-login owner-unlock">
           <h2>Administrator sign-in</h2><p class="owner-hint">Use your administrator account. Sessions expire after eight hours.</p>
           <label for="owner-username">Username</label><input id="owner-username" name="username" autocomplete="username" required value="admin">
@@ -156,6 +166,11 @@ export async function renderManage(container: HTMLElement): Promise<void> {
   const nav = query<HTMLElement>('#workspace-nav');
   const workspace = query<HTMLElement>('#workspace-page');
   const authCard = query<HTMLElement>('#owner-auth-card');
+  const sessionStatus = query<HTMLElement>('#owner-session-status');
+  const sessionMessage = query<HTMLElement>('#owner-session-message');
+  const sessionRetry = query<HTMLButtonElement>('#owner-session-retry');
+  const ownerPanel = query<HTMLElement>('.owner-panel');
+  sessionRetry.onclick = () => { void checkSession(); };
   query<HTMLButtonElement>('#workspace-sign-out').onclick = () => { void signOut(); };
   const authHeaders = (): Record<string, string> => token ? { Authorization: `Bearer ${token}` } : {};
 
@@ -171,41 +186,149 @@ export async function renderManage(container: HTMLElement): Promise<void> {
   async function adminFetch(path: string, method = 'GET', body?: unknown): Promise<Record<string, unknown>> {
     const response = await fetch(path, { method, credentials: 'same-origin', cache: 'no-store', headers: { ...authHeaders(), ...(body ? { 'Content-Type': 'application/json' } : {}) }, ...(body ? { body: JSON.stringify(body) } : {}), signal: AbortSignal.timeout(20000) });
     const result = await response.json() as Record<string, unknown>;
+    if (response.status === 401 && authenticated) expireSession();
     if (!response.ok) throw new Error(typeof result.error === 'string' ? result.error : 'The request could not be completed.');
     return result;
   }
 
-  async function openCalendar(): Promise<void> {
-    const result = await request('GET');
-    setCalendar(result);
-    authenticated = true;
+  function setAuthState(state: typeof authState): void {
+    authState = state;
+    authenticated = state === 'authenticated';
+    sessionStatus.hidden = state !== 'checking';
+    if (state === 'checking') {
+      sessionMessage.textContent = 'Checking your session…';
+      sessionRetry.hidden = true;
+    }
+    authCard.hidden = state !== 'unauthenticated';
+  }
+
+  function hideOwnerContent(): void {
+    workspace.hidden = true;
+    workspace.replaceChildren();
+    for (const panel of [calendarArea, requestsArea, settingsArea, integrationsArea]) panel.hidden = true;
+  }
+
+  function scrollToSection(): void {
+    const id = location.hash.slice(1);
+    if (id) document.getElementById(id)?.scrollIntoView({ block: 'start' });
+  }
+
+  async function openCalendar(verified?: CalendarResponse): Promise<void> {
+    const page = activePage();
+    const check = sessionCheck;
+    const recoveryCalendar = verified ?? (token ? await request('GET') : undefined);
+    if (check !== sessionCheck) return;
+    setAuthState('authenticated');
     tokenInput.value = '';
     loginForm.hidden = true;
     recovery.hidden = true;
     passwordArea.hidden = true;
     nav.hidden = false;
-    if (workspacePage) {
-      authCard.hidden = true;
+    mountedUrl = location.href;
+    ownerPanel.classList.toggle('workspace-wide', !!page);
+    const activeLink = location.hash === '#owner-requests-area' || location.hash === '#owner-settings-area'
+      ? '/admin' + location.hash : page ? route() : '/admin';
+    nav.querySelectorAll<HTMLAnchorElement>('a').forEach(link => {
+      if (link.getAttribute('href') === activeLink) link.setAttribute('aria-current', 'page');
+      else link.removeAttribute('aria-current');
+    });
+
+    if (page) {
       workspace.hidden = false;
       const mount = document.createElement('div');
       mount.textContent = 'Loading workspace…';
       workspace.replaceChildren(mount);
       try {
-        const render = await workspacePage.load();
+        const render = await page.load();
         if (authenticated && mount.isConnected) await render(mount, adminFetch);
       } catch (error) { showError(mount, error); }
+      scrollToSection();
       return;
     }
-    calendarArea.hidden = false;
+    authCard.hidden = false;
+    calendarArea.hidden = true;
     requestsArea.hidden = false;
     settingsArea.hidden = false;
     integrationsArea.hidden = false;
-    say('Calendar loaded. Review reservations and save any manual date changes.');
-    draw();
+    say('Loading availability…');
+    try {
+      const result = recoveryCalendar ?? await request('GET');
+      if (check !== sessionCheck || !authenticated) return;
+      setCalendar(result);
+      calendarArea.hidden = false;
+      draw();
+      say('Calendar loaded. Review reservations and save any manual date changes.');
+    } catch (error) {
+      if (check !== sessionCheck || !authenticated) return;
+      calendarArea.hidden = true;
+      say(error instanceof Error ? error.message : 'Availability could not be loaded.', true);
+    }
     void loadRequests();
     void loadSettings();
     void loadIntegrations();
+    scrollToSection();
   }
+
+  async function checkSession(): Promise<void> {
+    const check = ++sessionCheck;
+    const hadSession = authenticated;
+    hideOwnerContent();
+    setAuthState('checking');
+    try {
+      const session = token ? await request('GET') : await adminFetch('/api/admin/session');
+      if (check !== sessionCheck) return;
+      if (token) { await openCalendar(session as CalendarResponse); return; }
+      const cookieSession = session as { authenticated?: boolean; mustChangePassword?: boolean };
+      if (!cookieSession.authenticated) {
+        lockCalendar(hadSession ? 'Your session expired. Sign in again.' : '');
+        return;
+      }
+      if (cookieSession.mustChangePassword) {
+        setAuthState('unauthenticated');
+        nav.hidden = true;
+        loginForm.hidden = true;
+        recovery.hidden = true;
+        passwordArea.hidden = false;
+        say('Replace the temporary password to continue.');
+        return;
+      }
+      await openCalendar();
+    } catch {
+      if (check !== sessionCheck) return;
+      nav.hidden = true;
+      sessionMessage.textContent = 'Your session could not be checked. Try again.';
+      sessionRetry.hidden = false;
+    }
+  }
+
+  function canLeavePage(): boolean {
+    if (busy || requestsBusy) return false;
+    if (changeCount() && !confirm('Discard your unsaved calendar changes?')) return false;
+    if (workspace.firstElementChild?.dispatchEvent(new Event('owner-before-navigate', { cancelable: true })) === false) return false;
+    additions.clear();
+    removals.clear();
+    pendingDetails.clear();
+    return true;
+  }
+
+  nav.addEventListener('click', event => {
+    const link = (event.target as HTMLElement).closest<HTMLAnchorElement>('a[href]');
+    if (!link || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    event.preventDefault();
+    if (link.href === location.href) { scrollToSection(); return; }
+    if (!canLeavePage()) return;
+    history.pushState(null, '', link.href);
+    void checkSession();
+  });
+
+  window.addEventListener('popstate', () => {
+    if (location.href === mountedUrl) return;
+    if (!canLeavePage()) {
+      history.pushState(null, '', mountedUrl);
+      return;
+    }
+    void checkSession();
+  });
 
   async function loadSettings(): Promise<void> {
     try {
@@ -279,9 +402,10 @@ export async function renderManage(container: HTMLElement): Promise<void> {
     status.classList.toggle('owner-status-error', error);
   }
 
-  function lockCalendar(): void {
+  function lockCalendar(message = 'Signed out. Sign in to manage your calendar.'): void {
+    ++sessionCheck;
     token = '';
-    authenticated = false;
+    setAuthState('unauthenticated');
     nav.hidden = true;
     authCard.hidden = false;
     workspace.hidden = true;
@@ -322,12 +446,23 @@ export async function renderManage(container: HTMLElement): Promise<void> {
     settingsArea.hidden = true;
     integrationsArea.hidden = true;
     calendarArea.hidden = true;
-    say('Signed out. Sign in to manage your calendar.');
+    say(message);
     query<HTMLInputElement>('#owner-password').value = '';
-    query<HTMLInputElement>('#owner-username').focus();
+    if (message) query<HTMLInputElement>('#owner-username').focus();
+    mountedUrl = location.href;
+  }
+
+  function expireSession(): void {
+    lockCalendar('Your session expired. Sign in again.');
   }
 
   async function signOut(): Promise<void> {
+    if (!canLeavePage()) return;
+    ++sessionCheck;
+    hideOwnerContent();
+    nav.hidden = true;
+    setAuthState('checking');
+    sessionMessage.textContent = 'Signing out…';
     try {
       if (!token) await adminFetch('/api/admin/session', 'DELETE');
       lockCalendar();
@@ -355,6 +490,7 @@ export async function renderManage(container: HTMLElement): Promise<void> {
       signal: AbortSignal.timeout(15000),
     });
     if (!response.ok) {
+      if (response.status === 401 && authenticated) expireSession();
       if (response.status === 401 || response.status === 403) throw new Error('The owner key was not accepted. Lock the calendar and sign in again.');
       if (response.status === 409) throw new Error('This request could not be updated: the dates or request status may have changed. Refresh requests and review the calendar.');
       if (response.status === 503) throw new Error('Stay requests are not connected yet. Complete the booking setup first.');
@@ -510,14 +646,14 @@ export async function renderManage(container: HTMLElement): Promise<void> {
   }
 
   async function loadRequests(): Promise<void> {
-    if (!authenticated || requestsBusy) return;
-    const sessionToken = token;
-    requestsBusy = true;
+    const generation = sessionCheck;
+    if (!authenticated || requestsBusy || requestsLoadingAt === generation) return;
+    requestsLoadingAt = generation;
     refreshRequests.disabled = true;
     requestsStatus.textContent = 'Loading stay requests…';
     try {
       const result = await requestBookings('GET');
-      if (!authenticated || token !== sessionToken) return;
+      if (!authenticated || sessionCheck !== generation) return;
       if (!result || typeof result !== 'object' || !('requests' in result) || !Array.isArray(result.requests)) throw new Error('Stay requests returned an unexpected response. Please try again.');
       const valid = result.requests.every((entry: unknown) => {
         if (!entry || typeof entry !== 'object') return false;
@@ -530,11 +666,11 @@ export async function renderManage(container: HTMLElement): Promise<void> {
       bookingRequests = result.requests as BookingRequest[];
       requestsStatus.textContent = `${bookingRequests.filter((booking) => booking.status === 'pending').length} pending requests`;
     } catch (error) {
-      if (authenticated) requestsStatus.textContent = error instanceof Error ? error.message : 'Stay requests could not be loaded. Try again.';
+      if (authenticated && sessionCheck === generation) requestsStatus.textContent = error instanceof Error ? error.message : 'Stay requests could not be loaded. Try again.';
     } finally {
-      requestsBusy = false;
-      refreshRequests.disabled = false;
-      if (authenticated) {
+      if (requestsLoadingAt === generation) requestsLoadingAt = -1;
+      if (authenticated && sessionCheck === generation) {
+        refreshRequests.disabled = false;
         drawRequests();
         draw();
         void loadRequestNotifications();
@@ -580,6 +716,7 @@ export async function renderManage(container: HTMLElement): Promise<void> {
       signal: AbortSignal.timeout(15000),
     });
     if (!response.ok) {
+      if (response.status === 401 && authenticated) expireSession();
       if (response.status === 401 || response.status === 403) throw new Error('The owner key was not accepted. Check your key and try again.');
       if (response.status === 503) throw new Error('The calendar is not connected yet. Complete the calendar setup before managing dates.');
       if (response.status === 400) { const error=await response.json().catch(()=>null); throw new Error(typeof error?.error==='string'?error.error:'The selected dates or private notes could not be saved. Review your changes and try again.'); }
@@ -759,10 +896,28 @@ export async function renderManage(container: HTMLElement): Promise<void> {
     } finally { setBusy(false); }
   });
   window.addEventListener('beforeunload', (event) => {
-    if (changeCount() > 0) { event.preventDefault(); event.returnValue = ''; }
+    if (changeCount() > 0 || workspace.firstElementChild?.dispatchEvent(new Event('owner-has-draft', { cancelable: true })) === false) {
+      event.preventDefault(); event.returnValue = '';
+    }
   });
-  window.addEventListener('pagehide', () => { token = ''; });
-  window.addEventListener('pageshow', (event) => { if (event.persisted) lockCalendar(); });
+  window.addEventListener('pagehide', event => {
+    token = '';
+    if (event.persisted) {
+      ++sessionCheck;
+      hideOwnerContent();
+      nav.hidden = true;
+      setAuthState('checking');
+    }
+  });
+  window.addEventListener('pageshow', event => { if (event.persisted) void checkSession(); });
+  document.addEventListener('visibilitychange', async () => {
+    if (document.hidden || authState !== 'authenticated' || token) return;
+    const check = sessionCheck;
+    try {
+      const session = await adminFetch('/api/admin/session');
+      if (check === sessionCheck && (!session.authenticated || session.mustChangePassword)) expireSession();
+    } catch { /* Server authorization is checked again on the next request. */ }
+  });
 
   loginForm.addEventListener('submit', async event => {
     event.preventDefault();
@@ -823,9 +978,5 @@ export async function renderManage(container: HTMLElement): Promise<void> {
       finally { button.disabled = false; }
     });
   }
-  try {
-    const session = await adminFetch('/api/admin/session');
-    if (session.authenticated && session.mustChangePassword) { loginForm.hidden = true; recovery.hidden = true; passwordArea.hidden = false; say('Replace the temporary password to continue.'); }
-    else if (session.authenticated) await openCalendar();
-  } catch { /* The sign-in screen remains usable when no session exists. */ }
+  await checkSession();
 }

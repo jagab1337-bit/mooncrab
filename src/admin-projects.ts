@@ -1,5 +1,5 @@
 import { renderFiles } from './admin-files.ts';
-import { escape, localDate, showError, workspaceUrl, type AdminFetch, type RecordIdentity } from './admin-workspace.ts';
+import { protectDraft, escape, localDate, showError, workspaceUrl, type AdminFetch, type RecordIdentity } from './admin-workspace.ts';
 
 const statuses = ['Planned', 'In Progress', 'On Hold', 'Completed', 'Cancelled'];
 const priorities = ['Low', 'Medium', 'High', 'Urgent'];
@@ -306,9 +306,7 @@ export async function renderProjects(container: HTMLElement, request: AdminFetch
     if (row) open(row);
   };
   search.oninput = draw; view.onchange = draw; calendarMonth.onchange = draw;
-  window.addEventListener('beforeunload', event => {
-    if (container.isConnected && (dirty || busy)) { event.preventDefault(); event.returnValue = ''; }
-  });
+  protectDraft(container, () => dirty || busy);
   try {
     records = (await request(endpoint)).records as Project[];
     draw(); status.textContent = '';

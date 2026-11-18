@@ -1,4 +1,4 @@
-import { escape, localDate, money, showError, workspaceUrl, type AdminFetch, type RecordIdentity } from './admin-workspace.ts';
+import { protectDraft, escape, localDate, money, showError, workspaceUrl, type AdminFetch, type RecordIdentity } from './admin-workspace.ts';
 
 type Kind = 'in' | 'out';
 type Party = { name: string; cents: number };
@@ -157,8 +157,6 @@ export async function renderFinance(container: HTMLElement, request: AdminFetch)
     link.href = url; link.download = `mooncrab-${kind}-${month.value}.csv`; link.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
-  window.addEventListener('beforeunload', event => {
-    if (container.isConnected && (dirty || saving)) { event.preventDefault(); event.returnValue = ''; }
-  });
+  protectDraft(container, () => dirty || saving);
   await refresh();
 }

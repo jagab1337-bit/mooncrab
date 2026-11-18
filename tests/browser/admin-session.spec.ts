@@ -243,3 +243,61 @@ test('confirmed, imported, and past dates permit private annotations while reope
   await expect(unavailable).not.toBeChecked();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });
+
+test('a slow session check never flashes the login form, and inner navigation keeps the document', async ({ page }) => {
+  let signedIn = true;
+  let release!: () => void;
+  let gate = new Promise<void>(resolve => { release = resolve; });
+  await page.route('**/api/admin/**', route => {
+    const path = new URL(route.request().url()).pathname;
+    if (path === '/api/admin/session') return (async () => {
+      if (route.request().method() === 'DELETE') signedIn = false;
+      await gate;
+      await route.fulfill({ json: { authenticated: signedIn, mustChangePassword: false } });
+    })();
+    const payload = path.endsWith('/availability') ? { initialized:true, blockedDates:[] }
+      : path.endsWith('/booking-requests') ? {requests:[]}
+      : path.endsWith('/email-outbox') ? {smtp:{configured:false}, jobs:[]}
+      : path.endsWith('/settings') ? DEFAULT_CONFIG : { records:[], files:[], sources:[] };
+    return route.fulfill({ json: payload });
+  });
+  const login = page.getByRole('heading', { name: 'Administrator sign-in' });
+  const checking = page.getByText('Checking your session…');
+  await page.goto('/admin/finance', { waitUntil: 'domcontentloaded' });
+  await expect(checking).toBeVisible();
+  await expect(login).toBeHidden();
+  release();
+  await expect(page.getByRole('heading', { name:'Finance Tracker' })).toBeVisible();
+  const time = await page.evaluate(() => performance.timeOrigin);
+  for (const [link, heading] of [['Project Management','Project Management'], ['Credentials & Properties','Credentials & Properties'], ['Notification Settings','Booking notifications'], ['Dashboard','Stay requests']]) {
+    const nav = page.getByRole('navigation', { name:'Owner navigation' });
+    gate = new Promise<void>(resolve => { release = resolve; });
+    await nav.getByRole('link', { name:link, exact:true }).click();
+    await expect(checking).toBeVisible();
+    await expect(login).toBeHidden();
+    release();
+    await expect(page.getByRole('heading', { name:heading, exact:true })).toBeVisible();
+    expect(await page.evaluate(() => performance.timeOrigin)).toBe(time);
+  }
+  await page.goBack();
+  await expect(page.getByRole('heading', { name:'Booking notifications' })).toBeVisible();
+  await page.goForward();
+  await expect(page.getByRole('heading', { name:'Stay requests' })).toBeVisible();
+  gate = new Promise<void>(resolve => { release = resolve; });
+  await page.reload({ waitUntil:'domcontentloaded' });
+  await expect(checking).toBeVisible();
+  await expect(login).toBeHidden();
+  release();
+  await expect(page.getByRole('heading', { name:'Stay requests' })).toBeVisible();
+  signedIn = false;
+  await page.getByRole('navigation', { name:'Owner navigation' }).getByRole('link', { name:'Finance Tracker' }).click();
+  await expect(login).toBeVisible();
+  await expect(page.getByText('Your session expired. Sign in again.')).toBeVisible();
+  await expect(page.getByRole('heading', { name:'Finance Tracker' })).toBeHidden();
+  signedIn = true;
+  await page.reload();
+  await expect(page.getByRole('heading', { name:'Finance Tracker' })).toBeVisible();
+  await page.getByRole('navigation', { name:'Owner navigation' }).getByRole('button', { name:'Sign out' }).click();
+  await expect(login).toBeVisible();
+  await expect(page.getByRole('heading', { name:'Finance Tracker' })).toBeHidden();
+});
