@@ -103,12 +103,16 @@ test('guest and owner templates preserve actual quote, escape guest HTML, and di
   assert.match(guest.html, /Facebook · open our page/);
   assert.match(guest.text, /Please do not reply/);
   assert.match(owner.html, /href="https:\/\/mooncrabsiargao\.com\/admin#request-/);
-  assert.match(owner.text, /Dashboard: https:\/\/mooncrabsiargao\.com\/admin/);
+  assert.ok(owner.text.includes(`Dashboard: https://mooncrabsiargao.com/admin#request-${id}`));
   assert.doesNotMatch(owner.html + owner.text, /admin\.mooncrabsiargao\.com/);
 });
 
 test('SMTP remains blocked until an authorized bookings@ sender is explicitly verified', () => {
   assert.equal(smtpReadiness({}).configured, false);
+  const missingCredentials = smtpReadiness({ ...env, SMTP_USER: undefined, SMTP_PASSWORD: undefined });
+  assert.equal(missingCredentials.configured, false);
+  assert.match(missingCredentials.reason!, /SMTP_USER, SMTP_PASSWORD/);
+  assert.doesNotMatch(missingCredentials.reason!, /SMTP_HOST|SMTP_PORT/);
   assert.equal(smtpReadiness({ ...env, SMTP_SENDER_VERIFIED: undefined }).configured, false);
   assert.equal(smtpReadiness({ ...env, SMTP_FROM: 'other@example.com' }).configured, false);
   assert.equal(smtpReadiness({ ...env, SMTP_PORT: '25' }).configured, false);

@@ -105,6 +105,10 @@ test('owner must verify existing reservations before publishing; key is not pers
     await route.fulfill({ json: { initialized, blockedDates } });
   });
   await page.route('**/api/admin/booking-requests', route => route.fulfill({ json: { requests: [] } }));
+  await page.route('**/api/admin/session', route => route.fulfill({ json: { authenticated: false } }));
+  await page.route('**/api/admin/settings', route => route.fulfill({ json: { pricing: {}, contacts: {} } }));
+  await page.route('**/api/admin/calendar-sync', route => route.fulfill({ json: { sources: [] } }));
+  await page.route('**/api/admin/email-outbox**', route => route.fulfill({ json: { jobs: [] } }));
   await page.goto('/manage');
   await page.getByText('Use a private recovery key').click();
   await page.getByLabel('Calendar access key').fill('test-owner-key');
@@ -138,6 +142,10 @@ test('owner cancellation requires guest agreement and sends the intended action'
     if (route.request().method() === 'PATCH') { action = route.request().postDataJSON(); current = 'cancelled'; await route.fulfill({ json: { request: booking() } }); }
     else await route.fulfill({ json: { requests: [booking()] } });
   });
+  await page.route('**/api/admin/session', route => route.fulfill({ json: { authenticated: false } }));
+  await page.route('**/api/admin/settings', route => route.fulfill({ json: { pricing: {}, contacts: {} } }));
+  await page.route('**/api/admin/calendar-sync', route => route.fulfill({ json: { sources: [] } }));
+  await page.route('**/api/admin/email-outbox**', route => route.fulfill({ json: { jobs: [] } }));
   await page.goto('/manage');
   await page.getByText('Use a private recovery key').click();
   await page.getByLabel('Calendar access key').fill('test-owner-key');
@@ -163,6 +171,10 @@ test('owner reviews occupancy and verifies the manual deposit before confirming'
     if (route.request().method() === 'PATCH') { action = route.request().postDataJSON(); current = 'confirmed'; await route.fulfill({ json: { request: booking() } }); }
     else await route.fulfill({ json: { requests: [booking()] } });
   });
+  await page.route('**/api/admin/session', route => route.fulfill({ json: { authenticated: false } }));
+  await page.route('**/api/admin/settings', route => route.fulfill({ json: { pricing: {}, contacts: {} } }));
+  await page.route('**/api/admin/calendar-sync', route => route.fulfill({ json: { sources: [] } }));
+  await page.route('**/api/admin/email-outbox**', route => route.fulfill({ json: { jobs: [] } }));
   await page.goto('/manage');
   await page.getByText('Use a private recovery key').click();
   await page.getByLabel('Calendar access key').fill('test-owner-key');

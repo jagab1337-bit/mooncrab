@@ -110,9 +110,15 @@ return 'queued'
 `;
 
 export function smtpReadiness(env: Environment): { configured: boolean; reason: string | null } {
-  if (!env.SMTP_HOST || !env.SMTP_PORT || !env.SMTP_USER || !env.SMTP_PASSWORD) return { configured: false, reason: 'Add the Spacemail SMTP host, port, mailbox username, and password in server environment variables.' };
-  if (!['465', '587'].includes(env.SMTP_PORT)) return { configured: false, reason: 'SMTP_PORT must use TLS port 465 or STARTTLS port 587.' };
-  if (env.SMTP_FROM?.toLowerCase() !== EMAIL_CONTACTS.bookings || env.SMTP_SENDER_VERIFIED !== 'true') return { configured: false, reason: 'Verify that Spacemail authorizes bookings@mooncrabsiargao.com to send, then set SMTP_FROM and SMTP_SENDER_VERIFIED=true.' };
+  const missing = ['SMTP_HOST', 'SMTP_PORT', 'SMTP_USER', 'SMTP_PASSWORD'].filter(key => !env[key]?.trim());
+  if (missing.length) return { configured: false, reason: `Add these Vercel Production variables and redeploy: ${missing.join(', ')}.` };
+  if (!['465', '587'].includes(env.SMTP_PORT ?? '')) return { configured: false, reason: 'SMTP_PORT must use TLS port 465 or STARTTLS port 587.' };
+  if (env.SMTP_FROM?.toLowerCase() !== EMAIL_CONTACTS.bookings) {
+    return { configured: false, reason: 'Set SMTP_FROM to bookings@mooncrabsiargao.com in Vercel Production and redeploy.' };
+  }
+  if (env.SMTP_SENDER_VERIFIED !== 'true') {
+    return { configured: false, reason: 'Verify that the authenticated Spacemail mailbox can send as bookings@mooncrabsiargao.com, then set SMTP_SENDER_VERIFIED=true in Vercel Production and redeploy.' };
+  }
   return { configured: true, reason: null };
 }
 
