@@ -4,6 +4,7 @@ import {
   createAdminAvailabilityHandler,
   createAvailabilityHandler,
   createRedisCommand,
+  DATE_DETAILS_KEY,
   isValidDate,
   manilaDate,
   monthRange,
@@ -38,21 +39,34 @@ function response() {
 
 function memoryCalendar(initialized = true, dates: string[] = []) {
   const blocked = new Set(dates);
+  const confirmed = new Set<string>();
+  const imported = new Set<string>();
+  const details = new Map<string, string>();
+  const snapshots = new Map<string, string>();
   const commands: Array<Array<string | number>> = [];
   const command: RedisCommand = async (args) => {
     commands.push(args);
-    if (args[0] === 'GET') return initialized ? '1' : null;
-    if (args[0] === 'SUNION') return [...blocked];
-    if (args[0] === 'SMEMBERS') return args[1] === 'mooncrab:blocked-dates' ? [...blocked] : [];
+    if (args[0] === 'GET') return args[1] === 'mooncrab:availability-initialized' ? initialized ? '1' : null : snapshots.get(String(args[1])) ?? null;
+    if (args[0] === 'SUNION') return [...new Set([...blocked, ...confirmed, ...imported])];
+    if (args[0] === 'SMEMBERS') return args[1] === 'mooncrab:blocked-dates' ? [...blocked] : args[1] === 'mooncrab:confirmed-dates' ? [...confirmed] : [...imported];
+    if (args[0] === 'HGETALL') { assert.equal(args[1], DATE_DETAILS_KEY); return [...details.entries()].flat(); }
     if (args[0] === 'EVAL') {
-      for (const date of JSON.parse(String(args[5]))) blocked.add(date);
-      for (const date of JSON.parse(String(args[6]))) blocked.delete(date);
-      if (args[7] === '1') initialized = true;
+      const offset = Number(args[2]) + 3;
+      for (const date of JSON.parse(String(args[offset]))) blocked.add(date);
+      for (const date of JSON.parse(String(args[offset + 1]))) blocked.delete(date);
+      if (args[offset + 2] === '1') initialized = true;
+      if (Number(args[2]) === 3) {
+        assert.equal(args[5], DATE_DETAILS_KEY);
+        const changes = JSON.parse(String(args[offset + 3]));
+        for (const [date, detail] of Object.entries(changes)) {
+          if (detail === null) details.delete(date); else details.set(date, JSON.stringify(detail));
+        }
+      }
       return 1;
     }
     throw new Error('Unexpected command');
   };
-  return { command, commands, blocked };
+  return { command, commands, blocked, confirmed, imported, details, snapshots };
 }
 
 function request(overrides: Partial<ApiRequest> = {}): ApiRequest {
@@ -179,7 +193,7 @@ test('authenticated owner can read all calendar dates and initialization state',
   const res = response();
   await createAdminAvailabilityHandler({ env, now, command: store.command })(adminRequest(), res);
   assert.equal(res.code, 200);
-  assert.deepEqual(res.body, { room: 'KASAG', initialized: false, blockedDates: ['2026-11-20', '2026-12-01'], manualDates: ['2026-11-20', '2026-12-01'], confirmedDates: [], importedDates: [] });
+  assert.deepEqual(res.body, { room: 'KASAG', initialized: false, blockedDates: ['2026-11-20', '2026-12-01'], manualDates: ['2026-11-20', '2026-12-01'], confirmedDates: [], importedDates: [], dateDetails:{}, dateSources:{} });
 });
 
 test('owner can reconcile dates and initialize a calendar in a single transaction', async () => {
@@ -189,7 +203,7 @@ test('owner can reconcile dates and initialize a calendar in a single transactio
     method: 'PATCH', body: { add: ['2026-11-21', '2026-11-21'], remove: ['2026-11-20'], initialize: true },
   }), res);
   assert.equal(res.code, 200);
-  assert.deepEqual(res.body, { room: 'KASAG', initialized: true, blockedDates: ['2026-11-21'], manualDates: ['2026-11-21'], confirmedDates: [], importedDates: [] });
+  assert.deepEqual(res.body, { room: 'KASAG', initialized: true, blockedDates: ['2026-11-21'], manualDates: ['2026-11-21'], confirmedDates: [], importedDates: [], dateDetails:{}, dateSources:{} });
   assert.equal(store.commands.filter((command) => command[0] === 'EVAL').length, 1);
   const publicResponse = response();
   await createAvailabilityHandler({ env, now, command: store.command })(request(), publicResponse);
@@ -232,6 +246,131 @@ test('owner update storage failure does not report success', async () => {
     method: 'PATCH', body: { initialize: true },
   }), res);
   assert.equal(res.code, 503);
+});
+
+test('private date source and multiline notes persist without creating a booking or a block', async () => {
+  const store = memoryCalendar();
+  const handler = createAdminAvailabilityHandler({ env, now, command: store.command });
+  const detail = { source:'airbnb', notes:'Arriving late\nPlease prepare two towels. <script>private</script>' };
+  const saved = response();
+  await handler(adminRequest({ method:'PATCH', body:{ dateDetails:{'2026-11-20':detail} } }), saved);
+  assert.equal(saved.code,200);
+  assert.deepEqual((saved.body as {dateDetails:unknown}).dateDetails,{'2026-11-20':detail});
+  assert.deepEqual([...store.blocked],[]);
+  assert.deepEqual([...store.confirmed],[]);
+  const restored = response();
+  await handler(adminRequest(),restored);
+  assert.deepEqual((restored.body as {dateDetails:unknown}).dateDetails,{'2026-11-20':detail});
+  const publicResponse = response();
+  const beforeReads=store.commands.length;
+  await createAvailabilityHandler({env,now,command:store.command})(request(),publicResponse);
+  assert.deepEqual(publicResponse.body,{configured:true,room:'KASAG',month:'2026-11',blockedDates:[]});
+  assert(!store.commands.slice(beforeReads).some(call=>call[0]==='HGETALL'));
+  assert(!JSON.stringify(publicResponse.body).includes('private'));
+});
+
+test('owner saves blocking and annotations in one transaction, clears annotations separately, and preserves source blocks', async () => {
+  const store = memoryCalendar(true,['2026-11-20']);
+  store.confirmed.add('2026-11-21');
+  store.imported.add('2026-11-22');
+  const handler = createAdminAvailabilityHandler({env,now,command:store.command});
+  const res=response();
+  await handler(adminRequest({method:'PATCH',body:{
+    add:['2026-11-23'],remove:['2026-11-20'],dateDetails:{
+      '2026-11-21':{source:'direct',notes:'Confirmed elsewhere'},
+      '2026-11-22':{source:'booking',notes:'Imported stay note'},
+    },
+  }}),res);
+  assert.equal(res.code,200);
+  const mutations=store.commands.filter(call=>call[0]==='EVAL');
+  assert.equal(mutations.length,1);
+  assert.equal(mutations[0][2],3);
+  assert.deepEqual([...store.blocked],['2026-11-23']);
+  assert.deepEqual([...store.confirmed],['2026-11-21']);
+  assert.deepEqual([...store.imported],['2026-11-22']);
+  assert.deepEqual((res.body as {dateSources:unknown}).dateSources,{'2026-11-21':['direct']});
+  const cleared=response();
+  await handler(adminRequest({method:'PATCH',body:{dateDetails:{'2026-11-22':null}}}),cleared);
+  assert.equal(cleared.code,200);
+  assert.equal(store.details.has('2026-11-22'),false);
+  assert.deepEqual([...store.imported],['2026-11-22']);
+  assert.deepEqual([...store.blocked],['2026-11-23']);
+});
+
+test('date details validate source, note bounds, object shape and displayed calendar dates before any write', async () => {
+  const store=memoryCalendar();
+  const handler=createAdminAvailabilityHandler({env,now,command:store.command});
+  const valid={source:'direct',notes:'Private note'};
+  for(const dateDetails of [
+    null,[],{'2026-11-20':{source:'other',notes:''}}, {'2026-11-20':{source:'direct'}},
+    {'2026-11-20':{...valid,guest:'Do not accept extra fields'}},
+    {'2026-11-20':{source:'direct',notes:42}}, {'2026-11-20':{source:'direct',notes:'x'.repeat(2001)}},
+    {'2026-11-20':{source:'direct',notes:'bad\u0000note'}},
+    {'2026-10-31':valid},{'2028-11-01':valid},{'2027-02-29':valid},
+    Object.fromEntries(Array.from({length:367},(_,i)=>[new Date(Date.UTC(2026,10,1+i)).toISOString().slice(0,10),valid])),
+  ]) {
+    const res=response();
+    await handler(adminRequest({method:'PATCH',body:{add:['2026-11-20'],dateDetails}}),res);
+    assert.equal(res.code,400);
+  }
+  assert.equal(store.commands.length,0);
+  assert.equal(store.blocked.size,0);
+  const allowed=response();
+  await handler(adminRequest({method:'PATCH',body:{dateDetails:{
+    '2026-11-01':{source:'',notes:'Past date in the displayed month'},
+    '2028-10-31':{source:'booking',notes:'x'.repeat(2000)},
+  }}}),allowed);
+  assert.equal(allowed.code,200);
+});
+
+test('date detail mutations require owner authentication and corrupt notes never leak through an error', async () => {
+  const store=memoryCalendar();
+  const handler=createAdminAvailabilityHandler({env,now,command:store.command});
+  const unauthorized=response();
+  await handler(request({method:'PATCH',body:{dateDetails:{'2026-11-20':{source:'direct',notes:'Secret'}}}}),unauthorized);
+  assert.equal(unauthorized.code,401);
+  assert.equal(store.commands.length,0);
+  store.details.set('2026-11-20','{"source":"invalid","notes":"SECRET guest note"}');
+  const corrupt=response();
+  await handler(adminRequest(),corrupt);
+  assert.equal(corrupt.code,503);
+  assert(!JSON.stringify(corrupt.body).includes('SECRET'));
+  const publicResponse=response();
+  await createAvailabilityHandler({env,now,command:store.command})(request(),publicResponse);
+  assert.equal(publicResponse.code,200);
+});
+
+test('owner source labels retain overlaps, exclude checkout nights and omit private feed event fields', async () => {
+  const store=memoryCalendar();
+  const event=(source:string,checkIn:string,checkOut:string)=>({id:'private-event-id',source,room:'KASAG',checkIn,checkOut,notes:'Secret guest',url:'https://private.invalid/feed'});
+  store.snapshots.set('mooncrab:ical:source:airbnb',JSON.stringify({events:[event('airbnb','2026-11-20','2026-11-22')]}));
+  store.snapshots.set('mooncrab:ical:source:booking',JSON.stringify({events:[event('booking','2026-11-21','2026-11-23')]}));
+  store.confirmed.add('2026-11-21');
+  const res=response();
+  await createAdminAvailabilityHandler({env,now,command:store.command})(adminRequest(),res);
+  assert.equal(res.code,200);
+  assert.deepEqual((res.body as {dateSources:unknown}).dateSources,{
+    '2026-11-20':['airbnb'],'2026-11-21':['airbnb','booking','direct'],'2026-11-22':['booking'],
+  });
+  assert(!JSON.stringify(res.body).includes('private-event-id'));
+  assert(!JSON.stringify(res.body).includes('Secret'));
+  assert(!JSON.stringify(res.body).includes('private.invalid'));
+  store.snapshots.set('mooncrab:ical:source:booking',JSON.stringify({events:[event('booking','2026-02-30','2026-03-01')]}));
+  const invalid=response();
+  await createAdminAvailabilityHandler({env,now,command:store.command})(adminRequest(),invalid);
+  assert.equal(invalid.code,503);
+});
+
+test('Redis object-form date hashes are read safely and hidden outside the displayed horizon', async () => {
+  const store=memoryCalendar();
+  const note={source:'direct',notes:'Current owner note'};
+  const command:RedisCommand=call=>call[0]==='HGETALL'?Promise.resolve({
+    '2026-11-20':JSON.stringify(note),'2026-10-01':JSON.stringify({source:'',notes:'Historic note'}),
+  }):store.command(call);
+  const res=response();
+  await createAdminAvailabilityHandler({env,now,command})(adminRequest(),res);
+  assert.equal(res.code,200);
+  assert.deepEqual((res.body as {dateDetails:unknown}).dateDetails,{'2026-11-20':note});
 });
 
 for (const [binding, credentials] of Object.entries({ direct: env, vercel: { KV_REST_API_URL: env.UPSTASH_REDIS_REST_URL, KV_REST_API_TOKEN: env.UPSTASH_REDIS_REST_TOKEN } })) {

@@ -111,8 +111,9 @@ test('owner must verify existing reservations before publishing; key is not pers
   await page.getByRole('button', { name: 'Unlock calendar' }).click();
   await expect(page.locator('#owner-calendar-area')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Save changes', exact: true })).toBeDisabled();
-  const available = page.locator('#owner-days button:enabled').first();
+  const available = page.locator('#owner-days button:not(.owner-day-past):enabled').first();
   await available.click();
+  await page.getByLabel('Unavailable for guests', { exact: true }).check();
   await page.getByRole('button', { name: 'Save changes', exact: true }).click();
   await expect(page.locator('#owner-status')).toContainText('publish the calendar when you are ready');
   expect(initialized).toBe(false);

@@ -36,7 +36,7 @@ Confirmation atomically rechecks manual, confirmed and imported blocked nights. 
 
 Use https://mooncrabsiargao.com/admin or the **Admin login** link in the website footer. `/admin` redirects to the protected `/manage` dashboard on the same domain. Username is `admin`; the supplied bootstrap password is stored only as a secure hash and must be changed after first login. Sessions use 8-hour, HttpOnly, Secure, SameSite cookies; login attempts are limited and mutations check Origin. The existing private bearer key remains available as a recovery/API option.
 
-The dashboard supports date ranges, manual/confirmed/imported indicators, pending inquiries, stored guest/phone/price details, deposit verification before confirmation, pricing/contact controls, password changes, calendar connection status, and safe email retries. Never share the owner key with guests.
+The dashboard supports date ranges, manual/confirmed/imported indicators, pending inquiries, stored guest/phone/price details, deposit verification before confirmation, pricing/contact controls, password changes, calendar connection status, and safe email retries. Select any displayed date to choose Airbnb, Booking.com, or direct booking and leave private notes, then use **Save changes**. Source labels and notes are independent of guest availability; use **Unavailable for guests** to manually block or reopen an eligible night. Imported and confirmed dates remain protected while their notes stay editable. Never share the owner key with guests.
 
 ## Integrations
 

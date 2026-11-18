@@ -1,7 +1,52 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
+import { DEFAULT_CONFIG } from '../../src/business.ts';
+
+type DateDetail = { source: '' | 'airbnb' | 'booking' | 'direct'; notes: string };
+type CalendarPatch = { add: string[]; remove: string[]; dateDetails?: Record<string, DateDetail | null> };
+const futureDate = (day: number) => `2030-04-${String(day).padStart(2, '0')}`;
+const ownerDay = (page: Page, date: string) => page.locator(`#owner-days [data-date="${date}"]`);
+
+async function editableCalendar(page: Page, initial: { manualDates?: string[]; confirmedDates?: string[]; importedDates?: string[]; dateDetails?: Record<string, DateDetail> } = {}) {
+  await page.clock.setFixedTime(new Date('2030-03-15T04:00:00Z'));
+  const manual = new Set(initial.manualDates ?? []);
+  const confirmed = initial.confirmedDates ?? [];
+  const imported = initial.importedDates ?? [];
+  const details = { ...initial.dateDetails };
+  const patches: CalendarPatch[] = [];
+  await page.route('**/api/admin/session', route => route.fulfill({ json: { authenticated: true, mustChangePassword: false } }));
+  await page.route('**/api/admin/availability', async route => {
+    if (route.request().method() === 'PATCH') {
+      const patch = route.request().postDataJSON() as CalendarPatch;
+      patches.push(patch);
+      patch.add.forEach(date => manual.add(date));
+      patch.remove.forEach(date => manual.delete(date));
+      for (const [date, detail] of Object.entries(patch.dateDetails ?? {})) {
+        if (detail === null) delete details[date];
+        else details[date] = detail;
+      }
+    }
+    const dateSources: Record<string, string[]> = Object.fromEntries(confirmed.map(date => [date, ['direct']]));
+    imported.forEach(date => { dateSources[date] = ['airbnb']; });
+    await route.fulfill({ json: { initialized: true, manualDates: [...manual], confirmedDates: confirmed, importedDates: imported, blockedDates: [...new Set([...manual, ...confirmed, ...imported])], dateDetails: details, dateSources } });
+  });
+  await page.route('**/api/admin/booking-requests', route => route.fulfill({ json: { requests: [] } }));
+  await page.route('**/api/admin/settings', route => route.fulfill({ json: DEFAULT_CONFIG }));
+  await page.route('**/api/admin/calendar-sync', route => route.fulfill({ json: { sources: [] } }));
+  await page.route('**/api/admin/email-outbox', route => route.fulfill({ json: { config: { configured: false }, counts: {}, jobs: [] } }));
+  await page.goto('/manage');
+  await expect(page.locator('#owner-calendar-area')).toBeVisible();
+  await page.getByRole('button', { name: 'Next month', exact: true }).click();
+  await expect(page.locator('#owner-month')).toHaveText('April 2030');
+  return { patches };
+}
 
 test('footer admin link and common owner routes open the protected sign-in page', async ({ page }) => {
+  let privateRequests = 0;
   await page.route('**/api/admin/session', route => route.fulfill({ json: { authenticated:false } }));
+  await page.route('**/api/admin/availability', route => {
+    privateRequests++;
+    return route.fulfill({ status: 401, json: { error: 'Unauthorized' } });
+  });
   await page.goto('/');
   const login=page.getByRole('link',{name:'Admin login',exact:true});
   await expect(login).toHaveAttribute('href','/manage');
@@ -11,7 +56,9 @@ test('footer admin link and common owner routes open the protected sign-in page'
     await page.goto(path);
     await expect(page.getByRole('heading',{name:'Administrator sign-in'})).toBeVisible();
     await expect(page.locator('#owner-calendar-area')).toBeHidden();
+    await expect(page.getByLabel('Private notes', { exact: true })).toBeHidden();
   }
+  expect(privateRequests).toBe(0);
 });
 
 test('administrator changes the bootstrap password, protects reservations, blocks a range, and saves rates', async ({ page }) => {
@@ -54,8 +101,12 @@ test('administrator changes the bootstrap password, protects reservations, block
   await page.getByRole('button', { name: 'Save new password' }).click();
   await expect(page.locator('#owner-calendar-area')).toBeVisible();
   await page.getByRole('button', { name: 'Next month', exact: true }).click();
-  await expect(page.locator(`[data-date="${date(6)}"]`)).toBeDisabled();
-  await expect(page.locator(`[data-date="${date(7)}"]`)).toBeDisabled();
+  await ownerDay(page, date(6)).click();
+  await expect(page.getByLabel('Unavailable for guests', { exact: true })).toBeChecked();
+  await expect(page.getByLabel('Unavailable for guests', { exact: true })).toBeDisabled();
+  await ownerDay(page, date(7)).click();
+  await expect(page.getByLabel('Unavailable for guests', { exact: true })).toBeChecked();
+  await expect(page.getByLabel('Unavailable for guests', { exact: true })).toBeDisabled();
   await page.getByLabel('From', { exact: true }).fill(date(5));
   await page.getByLabel('Through', { exact: true }).fill(date(8));
   await page.getByRole('button', { name: 'Block range', exact: true }).click();
@@ -72,4 +123,123 @@ test('administrator changes the bootstrap password, protects reservations, block
   await page.getByRole('button', { name: 'Lock calendar' }).click();
   await expect(page.getByRole('button', { name: 'Sign in', exact: true })).toBeVisible();
   await expect(page.locator('#owner-calendar-area')).toBeHidden();
+});
+
+test('private booking sources and notes survive changing selected dates, saving, and reloading', async ({ page }) => {
+  const { patches } = await editableCalendar(page);
+  const source = page.getByRole('combobox', { name: 'Booking source', exact: true });
+  const notes = page.getByLabel('Private notes', { exact: true });
+  const unavailable = page.getByLabel('Unavailable for guests', { exact: true });
+  await ownerDay(page, futureDate(5)).click();
+  await expect(unavailable).not.toBeChecked();
+  await source.selectOption('airbnb');
+  await notes.fill('Airbnb guest: late arrival\nAirport pickup requested.');
+  await unavailable.check();
+  await page.getByRole('button', { name: 'Close date editor' }).click();
+  await expect(notes).toBeHidden();
+  await ownerDay(page, futureDate(8)).click();
+  await expect(source).toHaveValue('');
+  await expect(notes).toHaveValue('');
+  await expect(unavailable).not.toBeChecked();
+  await source.selectOption('booking');
+  await notes.fill('Booking.com guest: <script>private-note</script>');
+  await ownerDay(page, futureDate(5)).click();
+  await expect(source).toHaveValue('airbnb');
+  await expect(notes).toHaveValue('Airbnb guest: late arrival\nAirport pickup requested.');
+  await expect(unavailable).toBeChecked();
+  expect(patches).toHaveLength(0);
+  await page.locator('#owner-save').click();
+  await expect(page.locator('#owner-status')).toContainText('Saved.');
+  expect(patches).toHaveLength(1);
+  expect(patches[0]).toMatchObject({ add: [futureDate(5)], remove: [], dateDetails: { [futureDate(5)]: { source: 'airbnb', notes: 'Airbnb guest: late arrival\nAirport pickup requested.' }, [futureDate(8)]: { source: 'booking', notes: 'Booking.com guest: <script>private-note</script>' } } });
+  await page.reload();
+  await expect(page.locator('#owner-calendar-area')).toBeVisible();
+  await page.getByRole('button', { name: 'Next month', exact: true }).click();
+  await ownerDay(page, futureDate(5)).click();
+  await expect(source).toHaveValue('airbnb');
+  await expect(notes).toHaveValue('Airbnb guest: late arrival\nAirport pickup requested.');
+  await expect(unavailable).toBeChecked();
+  await ownerDay(page, futureDate(8)).click();
+  await expect(source).toHaveValue('booking');
+  await expect(notes).toHaveValue('Booking.com guest: <script>private-note</script>');
+  await expect(unavailable).not.toBeChecked();
+  expect(await page.evaluate(() => `${JSON.stringify(localStorage)}${JSON.stringify(sessionStorage)}`)).not.toContain('private-note');
+  expect(await page.locator('#owner-calendar-area script').count()).toBe(0);
+});
+
+test('discard restores saved private details and availability while an explicit metadata clear can be saved', async ({ page }) => {
+  const saved = { source: 'airbnb' as const, notes: 'Existing guest note' };
+  const { patches } = await editableCalendar(page, { manualDates: [futureDate(5)], dateDetails: { [futureDate(5)]: saved } });
+  const source = page.getByRole('combobox', { name: 'Booking source', exact: true });
+  const notes = page.getByLabel('Private notes', { exact: true });
+  const unavailable = page.getByLabel('Unavailable for guests', { exact: true });
+  await ownerDay(page, futureDate(5)).click();
+  await source.selectOption('direct');
+  await notes.fill('Unsaved replacement');
+  await unavailable.uncheck();
+  await ownerDay(page, futureDate(8)).click();
+  await source.selectOption('booking');
+  await notes.fill('Unsaved new date');
+  await unavailable.check();
+  await page.locator('#owner-discard').click();
+  await expect(page.locator('#owner-change-count')).toContainText('No unsaved changes');
+  await expect(page.locator('#owner-save')).toBeDisabled();
+  expect(patches).toHaveLength(0);
+  await ownerDay(page, futureDate(5)).click();
+  await expect(source).toHaveValue('airbnb');
+  await expect(notes).toHaveValue(saved.notes);
+  await expect(unavailable).toBeChecked();
+  await ownerDay(page, futureDate(8)).click();
+  await expect(source).toHaveValue('');
+  await expect(notes).toHaveValue('');
+  await expect(unavailable).not.toBeChecked();
+  await ownerDay(page, futureDate(5)).click();
+  await source.selectOption('');
+  await notes.fill('');
+  await page.locator('#owner-save').click();
+  await expect(page.locator('#owner-status')).toContainText('Saved.');
+  expect(patches).toEqual([{ add: [], remove: [], dateDetails: { [futureDate(5)]: null } }]);
+  await ownerDay(page, futureDate(8)).click();
+  await ownerDay(page, futureDate(5)).click();
+  await expect(source).toHaveValue('');
+  await expect(notes).toHaveValue('');
+  await expect(unavailable).toBeChecked();
+});
+
+test('confirmed, imported, and past dates permit private annotations while reopening only editable manual dates', async ({ page }) => {
+  const past = '2030-03-10';
+  const { patches } = await editableCalendar(page, { manualDates: [past, futureDate(8)], confirmedDates: [futureDate(6)], importedDates: [futureDate(7)] });
+  const source = page.getByRole('combobox', { name: 'Booking source', exact: true });
+  const notes = page.getByLabel('Private notes', { exact: true });
+  const unavailable = page.getByLabel('Unavailable for guests', { exact: true });
+  for (const [date, channel, note] of [[futureDate(6), 'direct', 'Confirmed guest note'], [futureDate(7), 'airbnb', 'Imported guest note']] as const) {
+    await ownerDay(page, date).click();
+    await expect(source).toHaveValue(channel);
+    await expect(unavailable).toBeChecked();
+    await expect(unavailable).toBeDisabled();
+    await source.selectOption(channel);
+    await notes.fill(note);
+  }
+  await page.getByLabel('From', { exact: true }).fill(futureDate(6));
+  await page.getByLabel('Through', { exact: true }).fill(futureDate(8));
+  await page.getByRole('button', { name: 'Reopen range', exact: true }).click();
+  await page.getByRole('button', { name: 'Previous month', exact: true }).click();
+  await ownerDay(page, past).click();
+  await expect(unavailable).toBeChecked();
+  await expect(unavailable).toBeDisabled();
+  await source.selectOption('booking');
+  await notes.fill('Past booking follow-up');
+  await page.locator('#owner-save').click();
+  await expect(page.locator('#owner-status')).toContainText('Saved.');
+  expect(patches).toHaveLength(1);
+  expect(patches[0]).toMatchObject({ add: [], remove: [futureDate(8)], dateDetails: { [futureDate(6)]: { source: 'direct', notes: 'Confirmed guest note' }, [futureDate(7)]: { source: 'airbnb', notes: 'Imported guest note' }, [past]: { source: 'booking', notes: 'Past booking follow-up' } } });
+  await page.getByRole('button', { name: 'Next month', exact: true }).click();
+  for (const date of [futureDate(6), futureDate(7)]) {
+    await ownerDay(page, date).click();
+    await expect(unavailable).toBeChecked();
+    await expect(unavailable).toBeDisabled();
+  }
+  await ownerDay(page, futureDate(8)).click();
+  await expect(unavailable).not.toBeChecked();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });

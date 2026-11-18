@@ -1,6 +1,8 @@
 import './manage.css';
 
-type CalendarResponse = { blockedDates: string[]; manualDates?: string[]; confirmedDates?: string[]; importedDates?: string[]; initialized: boolean; error?: string };
+type DateSource = '' | 'airbnb' | 'booking' | 'direct';
+type DateDetail = { source:DateSource; notes:string };
+type CalendarResponse = { blockedDates: string[]; manualDates?: string[]; confirmedDates?: string[]; importedDates?: string[]; dateDetails?:Record<string,DateDetail>; dateSources?:Record<string,Exclude<DateSource,''>[]>; initialized: boolean; error?: string };
 type BookingRequest = { id: string; checkIn: string; checkOut: string; name: string; email: string; phone?: string; whatsapp?: boolean; room?: string; pricing?: { totalPhp?: number; nights?: number }; message: string; guests?: number; extraGuestFeePhp?: number; status: 'pending' | 'confirmed' | 'declined' | 'cancelled'; createdAt: string; updatedAt: string };
 
 /** Owner-only calendar. Credentials stay in this function's memory. */
@@ -29,8 +31,18 @@ export async function renderManage(container: HTMLElement): Promise<void> {
   let savedDates = new Set<string>();
   let confirmedDates = new Set<string>();
   let importedDates = new Set<string>();
+  let dateDetails:Record<string,DateDetail> = {};
+  let dateSources:Record<string,Exclude<DateSource,''>[]> = {};
+  let selectedDate:string | null = null;
+  const pendingDetails = new Map<string,DateDetail | null>();
   const additions = new Set<string>();
   const removals = new Set<string>();
+  const sourceLabels:Record<Exclude<DateSource,''>,string> = {airbnb:'Airbnb',booking:'Booking.com',direct:'Direct booking'};
+  const detectedSources = (key:string) => dateSources[key] ?? (confirmedDates.has(key)?['direct' as const]:[]);
+  const defaultDetail = (key:string):DateDetail => ({source:detectedSources(key).length===1?detectedSources(key)[0]:'',notes:''});
+  const savedDetail = (key:string):DateDetail => dateDetails[key] ?? defaultDetail(key);
+  const currentDetail = (key:string):DateDetail => pendingDetails.has(key)?pendingDetails.get(key)??defaultDetail(key):savedDetail(key);
+  const changeCount = () => new Set([...additions,...removals,...pendingDetails.keys()]).size;
 
   const describe = (key: string) => new Intl.DateTimeFormat('en', {
     timeZone: 'UTC', month: 'long', day: 'numeric', year: 'numeric',
@@ -63,16 +75,24 @@ export async function renderManage(container: HTMLElement): Promise<void> {
         <section id="owner-password-area" hidden><h2 id="owner-password-title">Change your password</h2><p class="owner-hint">Choose a new password of at least 12 characters. Your first sign-in requires this step before calendar access.</p><form id="owner-password-form" class="owner-login"><label for="owner-current-password">Current password</label><input id="owner-current-password" type="password" autocomplete="current-password" required maxlength="128"><label for="owner-new-password">New password</label><input id="owner-new-password" type="password" autocomplete="new-password" required minlength="12" maxlength="128"><button class="owner-primary" type="submit">Save new password</button><p id="owner-password-status" class="owner-status" role="status"></p></form></section>
         <div id="owner-calendar-area" hidden>
           <div class="owner-access"><span><span class="owner-access-dot"></span> Owner calendar · KASAG</span><button id="owner-lock" type="button">Lock calendar</button></div>
-          <p class="owner-instructions" id="owner-calendar-help">Select a date to block or reopen it. Changes become public only after you save. Dates use Philippine time.</p>
+          <p class="owner-instructions" id="owner-calendar-help">Select a date to edit its booking source, private notes, and availability. Save changes when you’re done. Dates use Philippine time.</p>
           <div id="owner-overview" class="owner-overview" aria-label="Booking overview"></div>
           <div class="owner-range"><label>From<input id="owner-range-start" type="date" min="${today}"></label><label>Through<input id="owner-range-end" type="date" min="${today}"></label><button id="owner-range-block" type="button">Block range</button><button id="owner-range-open" type="button">Reopen range</button></div>
           <div class="owner-month-navigation"><button id="owner-prev" type="button" aria-label="Previous month">←</button><h2 id="owner-month"></h2><button id="owner-next" type="button" aria-label="Next month">→</button></div>
           <div class="owner-weekdays" aria-hidden="true"><span>Su</span><span>Mo</span><span>Tu</span><span>We</span><span>Th</span><span>Fr</span><span>Sa</span></div>
           <div id="owner-days" class="owner-days" role="group" aria-labelledby="owner-month" aria-describedby="owner-calendar-help"></div>
+          <section id="owner-date-editor" class="owner-date-editor" aria-labelledby="owner-date-title" hidden>
+            <div class="owner-date-heading"><div><p class="owner-eyebrow">SELECTED DATE</p><h3 id="owner-date-title"></h3></div><button id="owner-date-close" type="button" aria-label="Close date editor">×</button></div>
+            <p id="owner-date-state" class="owner-date-state"></p>
+            <div class="owner-date-fields"><label for="owner-date-source">Booking source<select id="owner-date-source"><option value="">Not specified</option><option value="airbnb">Airbnb</option><option value="booking">Booking.com</option><option value="direct">Direct booking</option></select></label><label for="owner-date-notes">Private notes<textarea id="owner-date-notes" rows="4" maxlength="2000" placeholder="Arrival plans, guest requests, reminders…" aria-describedby="owner-date-privacy"></textarea></label></div>
+            <p id="owner-date-privacy" class="owner-hint">Source labels and notes are visible only in the owner dashboard. They do not change guest availability.</p>
+            <label class="owner-date-block"><input id="owner-date-blocked" type="checkbox"><span>Unavailable for guests</span></label><p id="owner-date-protection" class="owner-hint"></p>
+            <p class="owner-date-save-hint">Use <strong>Save changes</strong> below to save this date and any other pending edits.</p>
+          </section>
           <div class="owner-legend"><span><i class="owner-legend-open"></i> Open</span><span><i class="owner-legend-blocked"></i> Manual block</span><span><i class="owner-legend-confirmed"></i> Confirmed</span><span><i class="owner-legend-imported"></i> Imported</span><span><i class="owner-legend-pending"></i> Pending inquiry</span><span><i class="owner-legend-edited"></i> Unsaved change</span></div>
           <label class="owner-initialize" id="owner-initialize-area"><input id="owner-initialize" type="checkbox" /><span>I have checked all existing reservations and blocked their dates. Publish this calendar for guests.</span></label>
           <div class="owner-save-row"><p id="owner-change-count">No unsaved changes</p><div><button type="button" id="owner-discard">Discard changes</button><button class="owner-primary" type="button" id="owner-save">Save changes</button></div></div>
-          <p class="owner-footnote">Block dates from other booking channels here. Confirmed stays remain blocked when manual dates are reopened. Calendar edits do not cancel a guest reservation. Keep your other booking channels in sync.</p>
+          <p class="owner-footnote">Imported and confirmed stays control their own availability. You can add private notes to any displayed date. Calendar edits do not cancel a guest reservation or update other booking channels.</p>
         </div>
         <p class="owner-status" id="owner-status" role="status" aria-live="polite"></p>
       </div>
@@ -119,6 +139,8 @@ export async function renderManage(container: HTMLElement): Promise<void> {
     savedDates = new Set(result.manualDates ?? result.blockedDates);
     confirmedDates = new Set(result.confirmedDates ?? []);
     importedDates = new Set(result.importedDates ?? []);
+    dateDetails = result.dateDetails ?? {};
+    dateSources = result.dateSources ?? {};
     initialized = result.initialized;
   }
 
@@ -219,6 +241,16 @@ export async function renderManage(container: HTMLElement): Promise<void> {
     savedDates.clear();
     confirmedDates.clear();
     importedDates.clear();
+    dateDetails = {};
+    dateSources = {};
+    pendingDetails.clear();
+    selectedDate = null;
+    query<HTMLElement>('#owner-date-editor').hidden = true;
+    query<HTMLTextAreaElement>('#owner-date-notes').value = '';
+    query<HTMLSelectElement>('#owner-date-source').value = '';
+    query<HTMLElement>('#owner-date-title').textContent = '';
+    query<HTMLElement>('#owner-date-state').textContent = '';
+    query<HTMLElement>('#owner-date-protection').textContent = '';
     bookingRequests = [];
     requestsList.replaceChildren();
     requestsArea.hidden = true;
@@ -447,7 +479,7 @@ export async function renderManage(container: HTMLElement): Promise<void> {
     if (!response.ok) {
       if (response.status === 401 || response.status === 403) throw new Error('The owner key was not accepted. Check your key and try again.');
       if (response.status === 503) throw new Error('The calendar is not connected yet. Complete the calendar setup before managing dates.');
-      if (response.status === 400) throw new Error('The selected dates could not be saved. Reload the calendar and try again.');
+      if (response.status === 400) { const error=await response.json().catch(()=>null); throw new Error(typeof error?.error==='string'?error.error:'The selected dates or private notes could not be saved. Review your changes and try again.'); }
       throw new Error('The calendar could not be reached. Your changes have not been saved. Please try again.');
     }
     const result: unknown = await response.json();
@@ -477,36 +509,70 @@ export async function renderManage(container: HTMLElement): Promise<void> {
       const confirmed = confirmedDates.has(key);
       const imported = importedDates.has(key);
       const pending = bookingRequests.some(booking => booking.status === 'pending' && booking.checkIn <= key && booking.checkOut > key);
-      const edited = additions.has(key) || removals.has(key);
+      const edited = additions.has(key) || removals.has(key) || pendingDetails.has(key);
+      const detail = currentDetail(key);
+      const sources = detail.source ? [detail.source] : detectedSources(key);
       const button = document.createElement('button');
       button.type = 'button';
-      button.textContent = String(day);
+      const number=document.createElement('span'); number.textContent=String(day); button.append(number);
+      if(sources.length) { const label=document.createElement('small'); label.className='owner-day-source'; label.textContent=sources.length>1?'Multiple':sources[0]==='booking'?'Booking':sources[0]==='direct'?'Direct':'Airbnb'; button.append(label); }
+      if(detail.notes) { const marker=document.createElement('span'); marker.className='owner-day-note'; marker.setAttribute('aria-hidden','true'); marker.textContent='✎'; button.append(marker); }
       button.dataset.date = key;
-      button.className = `owner-day${blocked ? ' owner-day-blocked' : ''}${confirmed ? ' owner-day-confirmed' : ''}${imported ? ' owner-day-imported' : ''}${pending ? ' owner-day-pending' : ''}${edited ? ' owner-day-edited' : ''}`;
-      button.disabled = busy || key < today || confirmed || imported;
-      button.setAttribute('aria-pressed', String(blocked));
-      button.setAttribute('aria-label', `${describe(key)}, ${confirmed ? 'confirmed booking' : imported ? 'imported booking' : blocked ? 'blocked' : 'open'}${pending ? ', pending inquiry' : ''}${edited ? ', unsaved change' : ''}${key < today ? ', past date' : ''}`);
+      button.className = `owner-day${blocked ? ' owner-day-blocked' : ''}${confirmed ? ' owner-day-confirmed' : ''}${imported ? ' owner-day-imported' : ''}${pending ? ' owner-day-pending' : ''}${edited ? ' owner-day-edited' : ''}${selectedDate===key?' owner-day-selected':''}${key<today?' owner-day-past':''}`;
+      button.disabled = busy;
+      button.setAttribute('aria-pressed', String(selectedDate===key));
+      button.setAttribute('aria-controls','owner-date-editor');
+      button.setAttribute('aria-label', `${describe(key)}, ${confirmed ? 'confirmed booking' : imported ? 'imported booking' : blocked ? 'blocked' : 'open'}${sources.length?`, ${sources.map(source=>sourceLabels[source]).join(' and ')}`:''}${detail.notes?', has private note':''}${pending ? ', pending inquiry' : ''}${edited ? ', unsaved change' : ''}${key < today ? ', past date' : ''}`);
       if (key === today) button.setAttribute('aria-current', 'date');
       button.addEventListener('click', () => {
-        if (busy || key < today || confirmed || imported) return;
-        if (savedDates.has(key)) {
-          if (removals.has(key)) removals.delete(key); else removals.add(key);
-        } else {
-          if (additions.has(key)) additions.delete(key); else additions.add(key);
-        }
-        say('Review your changes, then save to update guest availability.');
+        if (busy) return;
+        selectedDate=key;
         draw();
-        days.querySelector<HTMLButtonElement>(`[data-date="${key}"]`)?.focus();
+        query<HTMLElement>('#owner-date-title').setAttribute('tabindex','-1');
+        query<HTMLElement>('#owner-date-title').focus({preventScroll:true});
+        query<HTMLElement>('#owner-date-editor').scrollIntoView({behavior:'smooth',block:'nearest'});
       });
       days.append(button);
     }
-    const changes = additions.size + removals.size;
+    const changes = changeCount();
     query<HTMLElement>('#owner-initialize-area').hidden = initialized;
     query<HTMLElement>('#owner-change-count').textContent = changes ? `${changes} unsaved ${changes === 1 ? 'change' : 'changes'}` : 'No unsaved changes';
     save.disabled = busy || (changes === 0 && (initialized || !initializeApproved));
     save.textContent = busy ? 'Saving…' : !initialized && initializeApproved ? 'Save & publish calendar' : 'Save changes';
     discard.disabled = busy || changes === 0;
+    drawDateEditor();
     drawOverview();
+  }
+
+  function drawDateEditor():void {
+    const editor=query<HTMLElement>('#owner-date-editor');
+    editor.hidden=!selectedDate;
+    if(!selectedDate)return;
+    const detail=currentDetail(selectedDate);
+    query<HTMLElement>('#owner-date-title').textContent=describe(selectedDate);
+    const source=query<HTMLSelectElement>('#owner-date-source');
+    const notes=query<HTMLTextAreaElement>('#owner-date-notes');
+    source.value=detail.source;
+    if(notes.value!==detail.notes)notes.value=detail.notes;
+    source.disabled=busy; notes.disabled=busy;
+    const detected=detectedSources(selectedDate);
+    const protectedDate=confirmedDates.has(selectedDate)||importedDates.has(selectedDate)||selectedDate<today;
+    const blocked=query<HTMLInputElement>('#owner-date-blocked');
+    blocked.checked=isBlocked(selectedDate); blocked.disabled=busy||protectedDate;
+    query<HTMLElement>('#owner-date-state').textContent=`${isBlocked(selectedDate)?'Unavailable':'Available'}${confirmedDates.has(selectedDate)?' · Confirmed stay':importedDates.has(selectedDate)?' · Imported calendar':''}${detected.length?` · ${detected.map(source=>sourceLabels[source]).join(' + ')}`:''}`;
+    query<HTMLElement>('#owner-date-protection').textContent=importedDates.has(selectedDate)?'Availability is managed by the connected calendar. Your private labels and notes stay editable.':confirmedDates.has(selectedDate)?'A confirmed stay protects this night. Manage that reservation in Stay requests; private notes stay editable.':selectedDate<today?'Past availability cannot be changed. You can still keep private notes for this date.':'Check to block this night, or uncheck to reopen it. Guest availability changes after you save.';
+    query<HTMLButtonElement>('#owner-date-close').disabled=busy;
+  }
+
+  function stageDateDetails():void {
+    if(!selectedDate||busy)return;
+    const source=query<HTMLSelectElement>('#owner-date-source').value as DateSource;
+    const notes=query<HTMLTextAreaElement>('#owner-date-notes').value;
+    const original=savedDetail(selectedDate);
+    if(source===original.source&&notes===original.notes)pendingDetails.delete(selectedDate);
+    else pendingDetails.set(selectedDate,!source&&!notes?null:{source,notes});
+    draw();
+    say('Date details changed. Save changes to keep your private labels and notes.');
   }
 
   function drawOverview(): void {
@@ -556,30 +622,41 @@ export async function renderManage(container: HTMLElement): Promise<void> {
       say(error instanceof Error && error.name !== 'TimeoutError' && error.name !== 'AbortError' ? error.message : 'The calendar took too long to respond. Please try again.', true);
     } finally { setBusy(false); }
   });
-  prev.addEventListener('click', () => { if (shownMonth > firstMonth && !busy) { shownMonth--; draw(); } });
-  next.addEventListener('click', () => { if (shownMonth < lastMonth && !busy) { shownMonth++; draw(); } });
+  prev.addEventListener('click', () => { if (shownMonth > firstMonth && !busy) { shownMonth--; selectedDate=null; draw(); } });
+  next.addEventListener('click', () => { if (shownMonth < lastMonth && !busy) { shownMonth++; selectedDate=null; draw(); } });
   lock.addEventListener('click', () => { void signOut(); });
   query<HTMLButtonElement>('#owner-range-block').addEventListener('click', () => { if (!busy) applyRange(true); });
   query<HTMLButtonElement>('#owner-range-open').addEventListener('click', () => { if (!busy) applyRange(false); });
   initialize.addEventListener('change', () => { initializeApproved = initialize.checked; draw(); });
   refreshRequests.addEventListener('click', () => { void loadRequests(); });
-  discard.addEventListener('click', () => { additions.clear(); removals.clear(); draw(); say('Unsaved changes discarded.'); });
+  query<HTMLSelectElement>('#owner-date-source').addEventListener('change',stageDateDetails);
+  query<HTMLTextAreaElement>('#owner-date-notes').addEventListener('input',stageDateDetails);
+  query<HTMLInputElement>('#owner-date-blocked').addEventListener('change',()=>{
+    if(!selectedDate||busy||confirmedDates.has(selectedDate)||importedDates.has(selectedDate)||selectedDate<today)return;
+    const blocked=query<HTMLInputElement>('#owner-date-blocked').checked;
+    if(blocked) {removals.delete(selectedDate);if(!savedDates.has(selectedDate))additions.add(selectedDate);}
+    else {additions.delete(selectedDate);if(savedDates.has(selectedDate))removals.add(selectedDate);}
+    draw();say('Availability changed. Review and save your date changes.');
+  });
+  query<HTMLButtonElement>('#owner-date-close').addEventListener('click',()=>{const key=selectedDate;selectedDate=null;draw();if(key)days.querySelector<HTMLButtonElement>(`[data-date="${key}"]`)?.focus();});
+  discard.addEventListener('click', () => { additions.clear(); removals.clear(); pendingDetails.clear(); draw(); say('Unsaved changes discarded.'); });
   save.addEventListener('click', async () => {
-    if (busy || !authenticated || (additions.size + removals.size === 0 && (initialized || !initializeApproved))) return;
+    if (busy || !authenticated || (changeCount() === 0 && (initialized || !initializeApproved))) return;
     setBusy(true);
     say('Saving your calendar…');
     try {
-      const result = await request('PATCH', { add: [...additions], remove: [...removals], ...(!initialized && initializeApproved ? { initialize: true } : {}) });
+      const result = await request('PATCH', { add: [...additions], remove: [...removals], ...(pendingDetails.size?{dateDetails:Object.fromEntries(pendingDetails)}:{}), ...(!initialized && initializeApproved ? { initialize: true } : {}) });
       setCalendar(result);
       additions.clear();
       removals.clear();
-      say(initialized ? 'Saved. Guest availability now reflects these blocked dates.' : 'Blocked dates saved. Verify existing reservations and publish the calendar when you are ready.');
+      pendingDetails.clear();
+      say(initialized ? 'Saved. Availability, booking sources, and private notes are up to date.' : 'Date details saved. Verify existing reservations and publish the calendar when you are ready.');
     } catch (error) {
       say(error instanceof Error && error.name !== 'TimeoutError' && error.name !== 'AbortError' ? error.message : 'The calendar took too long to respond. Your changes remain unsaved. Please try again.', true);
     } finally { setBusy(false); }
   });
   window.addEventListener('beforeunload', (event) => {
-    if (additions.size + removals.size > 0) { event.preventDefault(); event.returnValue = ''; }
+    if (changeCount() > 0) { event.preventDefault(); event.returnValue = ''; }
   });
   window.addEventListener('pagehide', () => { token = ''; });
   window.addEventListener('pageshow', (event) => { if (event.persisted) lockCalendar(); });

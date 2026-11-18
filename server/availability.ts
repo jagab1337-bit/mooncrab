@@ -28,8 +28,15 @@ export const BLOCKED_KEY = 'mooncrab:blocked-dates';
 export const CONFIRMED_KEY = 'mooncrab:confirmed-dates';
 export const IMPORTED_KEY = 'mooncrab:imported-dates';
 export const INITIALIZED_KEY = 'mooncrab:availability-initialized';
+export const DATE_DETAILS_KEY = 'mooncrab:date-details';
+export type BookingSource = 'airbnb' | 'booking' | 'direct';
+export interface DateDetail { source: BookingSource | ''; notes: string }
+export type DateDetails = Record<string, DateDetail>;
+export type DateSources = Record<string, BookingSource[]>;
 const UNAVAILABLE = 'The booking calendar is temporarily unavailable. Please check back soon.';
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+const BOOKING_SOURCES = ['airbnb', 'booking', 'direct'] as const;
+const INVALID_NOTE_CHARACTERS = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/;
 
 export function manilaDate(now: Date): string {
   const parts = new Intl.DateTimeFormat('en-CA', {
@@ -165,22 +172,84 @@ export function authorized(req: ApiRequest, env: Environment): boolean {
   return timingSafeEqual(hash(token), hash(supplied));
 }
 
-interface CalendarUpdate { add: string[]; remove: string[]; initialize: boolean }
+function isDateDetail(value: unknown): value is DateDetail {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const detail = value as Record<string, unknown>;
+  return Object.keys(detail).length === 2 && Object.keys(detail).every(key => ['source', 'notes'].includes(key))
+    && typeof detail.source === 'string' && (detail.source === '' || BOOKING_SOURCES.includes(detail.source as BookingSource))
+    && typeof detail.notes === 'string' && detail.notes.length <= 2000 && !INVALID_NOTE_CHARACTERS.test(detail.notes);
+}
+
+function readDateDetails(raw: unknown, range: ReturnType<typeof monthRange>): DateDetails {
+  if (raw === null) return {};
+  let entries: Array<[string, unknown]>;
+  if (Array.isArray(raw)) {
+    if (raw.length % 2 !== 0) throw new Error('Invalid date details');
+    entries = [];
+    for (let index = 0; index < raw.length; index += 2) {
+      if (typeof raw[index] !== 'string') throw new Error('Invalid date details');
+      entries.push([raw[index], raw[index + 1]]);
+    }
+  } else if (raw && typeof raw === 'object') entries = Object.entries(raw);
+  else throw new Error('Invalid date details');
+  const details: DateDetails = {};
+  for (const [date, stored] of entries) {
+    if (!isValidDate(date) || typeof stored !== 'string') throw new Error('Invalid date details');
+    const detail: unknown = JSON.parse(stored);
+    if (!isDateDetail(detail)) throw new Error('Invalid date details');
+    if (date >= `${range.first}-01` && date <= range.lastDate) details[date] = detail;
+  }
+  return details;
+}
+
+/** Only source/date labels are derived; private event IDs and notes never leave snapshots. */
+function deriveDateSources(rawSnapshots: unknown[], confirmedDates: string[], range: ReturnType<typeof monthRange>): DateSources {
+  const sources: DateSources = {};
+  const include = (date: string, source: BookingSource) => {
+    if (date < `${range.first}-01` || date > range.lastDate) return;
+    const values = sources[date] ??= [];
+    if (!values.includes(source)) values.push(source);
+  };
+  for (const [index, source] of (['airbnb', 'booking'] as const).entries()) {
+    const raw = rawSnapshots[index];
+    if (raw === null) continue;
+    if (typeof raw !== 'string') throw new Error('Invalid calendar sources');
+    const snapshot = JSON.parse(raw) as { events?: unknown };
+    if (!snapshot || !Array.isArray(snapshot.events) || snapshot.events.length > 2000) throw new Error('Invalid calendar sources');
+    for (const candidate of snapshot.events) {
+      if (!candidate || typeof candidate !== 'object') throw new Error('Invalid calendar sources');
+      const event = candidate as Record<string, unknown>;
+      if (event.room !== ROOM || event.source !== source || !isValidDate(event.checkIn) || !isValidDate(event.checkOut) || event.checkOut <= event.checkIn) throw new Error('Invalid calendar sources');
+      const start = Date.parse(`${event.checkIn}T00:00:00Z`);
+      const end = Date.parse(`${event.checkOut}T00:00:00Z`);
+      if (end - start > 730 * 86_400_000) throw new Error('Invalid calendar sources');
+      for (let at = start; at < end; at += 86_400_000) include(new Date(at).toISOString().slice(0, 10), source);
+    }
+  }
+  confirmedDates.forEach(date => include(date, 'direct'));
+  return sources;
+}
+
+interface CalendarUpdate { add: string[]; remove: string[]; initialize: boolean; dateDetails: Record<string, DateDetail | null> }
 
 function parseUpdate(body: unknown, now: Date): CalendarUpdate | null {
   if (!body || typeof body !== 'object' || Array.isArray(body)) return null;
   const value = body as Record<string, unknown>;
-  if (Object.keys(value).some((key) => !['add', 'remove', 'initialize'].includes(key))) return null;
+  if (Object.keys(value).some((key) => !['add', 'remove', 'initialize', 'dateDetails'].includes(key))) return null;
   const add = value.add ?? [];
   const remove = value.remove ?? [];
   const initialize = value.initialize ?? false;
   if (!Array.isArray(add) || !Array.isArray(remove) || typeof initialize !== 'boolean') return null;
-  if (add.length + remove.length > 366 || (!add.length && !remove.length && !initialize)) return null;
+  const dateDetails = value.dateDetails === undefined ? {} : value.dateDetails;
+  if (!dateDetails || typeof dateDetails !== 'object' || Array.isArray(dateDetails)) return null;
+  const detailChanges = Object.entries(dateDetails);
+  if (add.length + remove.length > 366 || detailChanges.length > 366 || (!add.length && !remove.length && !initialize && !detailChanges.length)) return null;
   const range = monthRange(now);
   if (add.some((date) => !isValidDate(date) || date < range.today || date > range.lastDate)) return null;
   if (remove.some((date) => !isValidDate(date))) return null;
   if (add.some((date) => remove.includes(date))) return null;
-  return { add: [...new Set(add)], remove: [...new Set(remove)], initialize };
+  if (detailChanges.some(([date, detail]) => !isValidDate(date) || date < `${range.first}-01` || date > range.lastDate || (detail !== null && !isDateDetail(detail)))) return null;
+  return { add: [...new Set(add)], remove: [...new Set(remove)], initialize, dateDetails: dateDetails as CalendarUpdate['dateDetails'] };
 }
 
 // One Redis transaction prevents readers seeing a partially applied date update.
@@ -190,6 +259,26 @@ local remove = cjson.decode(ARGV[2])
 for _, date in ipairs(add) do redis.call('SADD', KEYS[1], date) end
 for _, date in ipairs(remove) do redis.call('SREM', KEYS[1], date) end
 if ARGV[3] == '1' then redis.call('SET', KEYS[2], '1') end
+return 1
+`;
+
+// Metadata and availability are saved together; annotations never alter source calendars.
+const UPDATE_WITH_DETAILS_SCRIPT = `
+local add = cjson.decode(ARGV[1])
+local remove = cjson.decode(ARGV[2])
+local details = cjson.decode(ARGV[4])
+local expected = { 'set', 'string', 'hash' }
+for index, key in ipairs(KEYS) do
+  local stored = redis.call('TYPE', key).ok
+  if stored ~= 'none' and stored ~= expected[index] then return redis.error_reply('Invalid calendar storage type') end
+end
+for _, date in ipairs(add) do redis.call('SADD', KEYS[1], date) end
+for _, date in ipairs(remove) do redis.call('SREM', KEYS[1], date) end
+if ARGV[3] == '1' then redis.call('SET', KEYS[2], '1') end
+for date, detail in pairs(details) do
+  if detail == cjson.null then redis.call('HDEL', KEYS[3], date)
+  else redis.call('HSET', KEYS[3], date, cjson.encode(detail)) end
+end
 return 1
 `;
 
@@ -222,18 +311,28 @@ export function createAdminAvailabilityHandler(options: HandlerOptions = {}) {
         }
         const update = parseUpdate(req.body, now());
         if (!update) {
-          res.status(400).json({ error: 'Provide up to 366 valid date changes within the next 24 months.' });
+          res.status(400).json({ error: 'Provide valid date changes, booking sources, and notes of up to 2,000 characters within the displayed calendar.' });
           return;
         }
-        await command([
-          'EVAL', UPDATE_SCRIPT, 2, BLOCKED_KEY, INITIALIZED_KEY,
-          JSON.stringify(update.add), JSON.stringify(update.remove), update.initialize ? '1' : '0',
-        ]);
+        if (Object.keys(update.dateDetails).length) {
+          await command(['EVAL', UPDATE_WITH_DETAILS_SCRIPT, 3, BLOCKED_KEY, INITIALIZED_KEY, DATE_DETAILS_KEY,
+            JSON.stringify(update.add), JSON.stringify(update.remove), update.initialize ? '1' : '0', JSON.stringify(update.dateDetails)]);
+        } else {
+          await command(['EVAL', UPDATE_SCRIPT, 2, BLOCKED_KEY, INITIALIZED_KEY,
+            JSON.stringify(update.add), JSON.stringify(update.remove), update.initialize ? '1' : '0']);
+        }
       }
       const calendar = await readCalendar(command);
-      const categories = await Promise.all([BLOCKED_KEY, CONFIRMED_KEY, IMPORTED_KEY].map(key => command(['SMEMBERS', key])));
+      const [categories, rawDetails, rawSnapshots] = await Promise.all([
+        Promise.all([BLOCKED_KEY, CONFIRMED_KEY, IMPORTED_KEY].map(key => command(['SMEMBERS', key]))),
+        command(['HGETALL', DATE_DETAILS_KEY]),
+        Promise.all(['airbnb', 'booking'].map(source => command(['GET', `mooncrab:ical:source:${source}`]))),
+      ]);
       if (categories.some(dates => !Array.isArray(dates) || dates.some(date => !isValidDate(date)))) throw new Error('Invalid calendar categories');
-      res.status(200).json({ room: ROOM, ...calendar, manualDates: (categories[0] as string[]).sort(), confirmedDates: (categories[1] as string[]).sort(), importedDates: (categories[2] as string[]).sort() });
+      const range = monthRange(now());
+      const dateDetails = readDateDetails(rawDetails, range);
+      const dateSources = deriveDateSources(rawSnapshots, categories[1] as string[], range);
+      res.status(200).json({ room: ROOM, ...calendar, manualDates: (categories[0] as string[]).sort(), confirmedDates: (categories[1] as string[]).sort(), importedDates: (categories[2] as string[]).sort(), dateDetails, dateSources });
     } catch {
       unavailable(res);
     }

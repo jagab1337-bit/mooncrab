@@ -29,6 +29,8 @@ Open `https://mooncrabsiargao.com/admin` or use **Admin login** in the website f
 
 Owner access uses the main website; no separate admin hostname or DNS record is required. The unused hosting attachment has been retired. Keep website, booking, and email DNS records intact.
 
+Each displayed date has an owner-only source and notes editor. Private overrides are stored in the `mooncrab:date-details` Redis hash; imported source labels are derived from the saved iCal snapshots and confirmed direct stays. Notes and source labels never appear in the public availability API. Saving annotations does not reserve or reopen a date; only explicit availability edits affect the manual blocked-date set. Metadata and manual edits submitted together use one atomic transaction, preserving imported and confirmed dates.
+
 ## Communications and imports
 
 Two protected daily schedules are configured: external calendar imports around 03:00 and email outbox draining around 03:15 Asia/Manila. Vercel Hobby schedules may run within their hourly window. `CRON_SECRET` is stored as a Vercel Secret. New requests also attempt email processing immediately after persistence; owner controls can run imports/drains manually.
