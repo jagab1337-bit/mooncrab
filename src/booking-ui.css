@@ -3,3 +3,8 @@
 .estimate-dates{font-size:11px;margin-bottom:12px;color:var(--muted)}
 
 .booking-alternatives a,.request-dialog-social a{display:inline-flex;align-items:center;gap:7px}.booking-alternatives .arrow-icon,.request-dialog-social .arrow-icon{width:14px;height:14px}
+
+.booking-policy { padding:18px; border:1px solid #d9d0c1; border-left:3px solid #839689; background:#f7eee3; }
+.booking-policy h3 { margin:0 0 10px; font-size:23px; }
+.booking-policy p { margin:0 0 14px; font-size:14px; line-height:1.65; }
+.booking-policy .consent { margin-bottom:0; }

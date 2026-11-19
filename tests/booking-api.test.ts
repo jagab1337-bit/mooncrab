@@ -49,7 +49,10 @@ function memoryCalendar(initialized = true, dates: string[] = []) {
     if (args[0] === 'GET') return args[1] === 'mooncrab:availability-initialized' ? initialized ? '1' : null : snapshots.get(String(args[1])) ?? null;
     if (args[0] === 'SUNION') return [...new Set([...blocked, ...confirmed, ...imported])];
     if (args[0] === 'SMEMBERS') return args[1] === 'mooncrab:blocked-dates' ? [...blocked] : args[1] === 'mooncrab:confirmed-dates' ? [...confirmed] : [...imported];
-    if (args[0] === 'HGETALL') { assert.equal(args[1], DATE_DETAILS_KEY); return [...details.entries()].flat(); }
+    if (args[0] === 'HGETALL') {
+      if (args[1] === 'mooncrab:confirmed-sources') return [];
+      assert.equal(args[1], DATE_DETAILS_KEY); return [...details.entries()].flat();
+    }
     if (args[0] === 'EVAL') {
       const offset = Number(args[2]) + 3;
       for (const date of JSON.parse(String(args[offset]))) blocked.add(date);

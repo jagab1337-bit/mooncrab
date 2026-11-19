@@ -37,7 +37,7 @@ Two protected daily schedules are configured: external calendar imports around 0
 
 The owner-supplied Airbnb and Booking.com export feeds are configured as server-only production Secrets. Both exports have been retrieved and parsed successfully. Imported nights appear in the public booking calendar alongside manual and confirmed blocks; refresh status is available in the owner dashboard. See [external calendars](docs/external-calendars.md) for the import schedule and reconciliation behavior.
 
-Spacemail SMTP credentials and sender verification remain pending. Actual email sending is not configured, and no actual test email has been sent yet. See [Spacemail](docs/transactional-email.md) for setup. SMTP acceptance is tracked separately from confirmed delivery.
+Production Spacemail SMTP reports ready, owner notifications are enabled, and the latest saved dashboard test was accepted by Spacemail. New bookings have a separate confirmation submission recorded after host approval. Each email attempt tracks provider acceptance separately from inbox delivery. [Spacemail setup and booking controls](docs/transactional-email.md)
 
 
 ## Private owner workspace

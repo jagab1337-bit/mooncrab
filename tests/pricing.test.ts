@@ -3,13 +3,14 @@ import test from 'node:test';
 import { calculatePricing, DEFAULT_PRICING, nightsBetween } from '../shared/pricing.ts';
 import { createAdminSettingsHandler, createPublicConfigHandler, createQuoteHandler, DEFAULT_SETTINGS, normalizePhone, SETTINGS_KEY } from '../server/business-settings.ts';
 import { createBookingRequestHandler, createAdminBookingRequestsHandler, CREATE_REQUEST_SCRIPT } from '../server/booking-requests.ts';
+import { DIRECT_POLICY } from '../shared/booking-terms.ts';
 import type { ApiRequest, RedisCommand } from '../server/availability.ts';
 
 const env={UPSTASH_REDIS_REST_URL:'https://store.example.invalid',UPSTASH_REDIS_REST_TOKEN:'test-token',BOOKING_ADMIN_TOKEN:'test-owner'};
 const now=()=>new Date('2026-11-18T02:00:00.000Z');
 function response(){return {code:200,body:undefined as unknown,headers:{} as Record<string,string>,setHeader(k:string,v:string){this.headers[k]=v;},status(code:number){this.code=code;return this;},json(value:unknown){this.body=value;}};}
 function req(body:Record<string,unknown>):ApiRequest{return {method:'POST',headers:{'content-type':'application/json'},body};}
-const guest={checkIn:'2026-12-17',checkOut:'2026-12-24',name:'Test Guest',email:'guest@example.invalid',phone:'+63 962 528 4264',whatsapp:true,room:'KASAG',guests:2,idempotencyKey:'371f802b-e248-4189-8b85-12b5a4664f33'};
+const guest={checkIn:'2026-12-17',checkOut:'2026-12-24',name:'Test Guest',email:'guest@example.invalid',phone:'+63 962 528 4264',whatsapp:true,room:'KASAG',guests:2,idempotencyKey:'371f802b-e248-4189-8b85-12b5a4664f33',policyAccepted:true,policyVersion:DIRECT_POLICY.version};
 
 test('published packages apply only to complete eligible blocks, including multi-week and monthly stays',()=>{
   for(const [nights,total] of [[2,2600],[3,3900],[6,7800],[7,8000],[8,9300],[14,16000],[15,17300],[28,32000],[29,33300],[30,30000],[31,31300],[36,37800],[44,46000],[60,60000],[90,90000]]){
@@ -52,7 +53,7 @@ test('public config and quote use the same persistent room rates',async()=>{
   const settings={...DEFAULT_SETTINGS,pricing:{...DEFAULT_PRICING,weeklyPhp:7500}};
   const command:RedisCommand=async()=>JSON.stringify(settings);
   const config=response();await createPublicConfigHandler({env,command})({method:'GET',headers:{}},config);
-  assert.deepEqual(config.body,settings);
+  assert.deepEqual(config.body,{ room:settings.room, pricing:settings.pricing, contacts:settings.contacts });
   const quote=response();await createQuoteHandler({env,command,now})({method:'GET',headers:{},query:{checkIn:'2026-12-17',checkOut:'2026-12-24',guests:'3',room:'KASAG'}},quote);
   assert.equal(quote.code,200);
   assert.equal((quote.body as {pricing:{totalPhp:number}}).pricing.totalPhp,11000);
@@ -110,6 +111,6 @@ test('configured external calendars must have a recent successful sync before ow
   const legacy={id,checkIn:'2026-12-17',checkOut:'2026-12-19',name:'Guest',email:'guest@example.invalid',message:'',status:'pending',createdAt:now().toISOString(),updatedAt:now().toISOString()};
   const command:RedisCommand=async(args)=>{if(args[0]==='GET')return String(args[1]).startsWith('mooncrab:request:')?JSON.stringify(legacy):null;mutations++;throw new Error('Must not confirm');};
   const handler=createAdminBookingRequestsHandler({env:{...env,AIRBNB_ICAL_URL:'https://www.airbnb.com/calendar/ical/private-test.ics'},now,command});
-  const res=response();await handler({method:'PATCH',headers:{authorization:'Bearer test-owner','content-type':'application/json'},body:{id,action:'confirm'}},res);
+  const res=response();await handler({method:'PATCH',headers:{authorization:'Bearer test-owner','content-type':'application/json'},body:{id,action:'confirm',payment:{totalCents:260000,receivedCents:null}}},res);
   assert.equal(res.code,409);assert.equal(mutations,0);assert.match(String((res.body as {error:string}).error),/Sync/);
 });

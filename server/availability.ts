@@ -26,6 +26,7 @@ export interface HandlerOptions {
 export const ROOM = 'KASAG';
 export const BLOCKED_KEY = 'mooncrab:blocked-dates';
 export const CONFIRMED_KEY = 'mooncrab:confirmed-dates';
+export const CONFIRMED_SOURCES_KEY = 'mooncrab:confirmed-sources';
 export const IMPORTED_KEY = 'mooncrab:imported-dates';
 export const INITIALIZED_KEY = 'mooncrab:availability-initialized';
 export const DATE_DETAILS_KEY = 'mooncrab:date-details';
@@ -180,8 +181,8 @@ function isDateDetail(value: unknown): value is DateDetail {
     && typeof detail.notes === 'string' && detail.notes.length <= 2000 && !INVALID_NOTE_CHARACTERS.test(detail.notes);
 }
 
-function readDateDetails(raw: unknown, range: ReturnType<typeof monthRange>): DateDetails {
-  if (raw === null) return {};
+function hashEntries(raw: unknown): Array<[string, unknown]> {
+  if (raw === null) return [];
   let entries: Array<[string, unknown]>;
   if (Array.isArray(raw)) {
     if (raw.length % 2 !== 0) throw new Error('Invalid date details');
@@ -192,8 +193,12 @@ function readDateDetails(raw: unknown, range: ReturnType<typeof monthRange>): Da
     }
   } else if (raw && typeof raw === 'object') entries = Object.entries(raw);
   else throw new Error('Invalid date details');
+  return entries;
+}
+
+function readDateDetails(raw: unknown, range: ReturnType<typeof monthRange>): DateDetails {
   const details: DateDetails = {};
-  for (const [date, stored] of entries) {
+  for (const [date, stored] of hashEntries(raw)) {
     if (!isValidDate(date) || typeof stored !== 'string') throw new Error('Invalid date details');
     const detail: unknown = JSON.parse(stored);
     if (!isDateDetail(detail)) throw new Error('Invalid date details');
@@ -203,7 +208,7 @@ function readDateDetails(raw: unknown, range: ReturnType<typeof monthRange>): Da
 }
 
 /** Only source/date labels are derived; private event IDs and notes never leave snapshots. */
-function deriveDateSources(rawSnapshots: unknown[], confirmedDates: string[], range: ReturnType<typeof monthRange>): DateSources {
+function deriveDateSources(rawSnapshots: unknown[], confirmedDates: string[], rawConfirmedSources: unknown, range: ReturnType<typeof monthRange>): DateSources {
   const sources: DateSources = {};
   const include = (date: string, source: BookingSource) => {
     if (date < `${range.first}-01` || date > range.lastDate) return;
@@ -226,7 +231,11 @@ function deriveDateSources(rawSnapshots: unknown[], confirmedDates: string[], ra
       for (let at = start; at < end; at += 86_400_000) include(new Date(at).toISOString().slice(0, 10), source);
     }
   }
-  confirmedDates.forEach(date => include(date, 'direct'));
+  const confirmedSources = new Map(hashEntries(rawConfirmedSources));
+  confirmedDates.forEach(date => {
+    const source = confirmedSources.get(date);
+    include(date, source === 'airbnb' || source === 'booking' ? source : 'direct');
+  });
   return sources;
 }
 
@@ -326,15 +335,16 @@ export function createAdminAvailabilityHandler(options: HandlerOptions = {}) {
         }
       }
       const calendar = await readCalendar(command);
-      const [categories, rawDetails, rawSnapshots] = await Promise.all([
+      const [categories, rawDetails, rawSnapshots, rawConfirmedSources] = await Promise.all([
         Promise.all([BLOCKED_KEY, CONFIRMED_KEY, IMPORTED_KEY].map(key => command(['SMEMBERS', key]))),
         command(['HGETALL', DATE_DETAILS_KEY]),
         Promise.all(['airbnb', 'booking'].map(source => command(['GET', `mooncrab:ical:source:${source}`]))),
+        command(['HGETALL', CONFIRMED_SOURCES_KEY]),
       ]);
       if (categories.some(dates => !Array.isArray(dates) || dates.some(date => !isValidDate(date)))) throw new Error('Invalid calendar categories');
       const range = monthRange(now());
       const dateDetails = readDateDetails(rawDetails, range);
-      const dateSources = deriveDateSources(rawSnapshots, categories[1] as string[], range);
+      const dateSources = deriveDateSources(rawSnapshots, categories[1] as string[], rawConfirmedSources, range);
       res.status(200).json({ room: ROOM, ...calendar, manualDates: (categories[0] as string[]).sort(), confirmedDates: (categories[1] as string[]).sort(), importedDates: (categories[2] as string[]).sort(), dateDetails, dateSources });
     } catch {
       unavailable(res);

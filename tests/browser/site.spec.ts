@@ -88,11 +88,19 @@ test('sends a pending request with actual selected dates, not a confirmed bookin
   await page.getByLabel('Phone or WhatsApp number').fill('9171234567');
   await page.getByLabel('A note for your host').fill('Looking forward to Siargao.');
   await page.getByRole('checkbox', {name:'I agree to share these details'}).check();
+  const policy = page.getByRole('checkbox', {name:/I have read and agree to Moon Crab/});
+  await expect(policy).not.toBeChecked();
+  await expect(page.getByRole('region', {name:'Booking & Cancellation Policy'})).toContainText('non-refundable');
+  await page.getByRole('button', { name: 'Request this stay' }).click();
+  expect(payload).toEqual({});
+  await policy.check();
   await page.getByRole('button', { name: 'Request this stay' }).click();
   await expect(page.locator('#request-status')).toContainText('Your room is not reserved until confirmed');
   await expect(page.getByRole('dialog')).toContainText('Thank you for reaching out, Island!');
   await expect(page.getByRole('dialog')).toContainText('Estimated total: ₱5,400');
   await expect(page.getByRole('dialog')).toContainText('Your reservation is not yet confirmed');
+  expect(payload.policyAccepted).toBe(true);
+  expect(payload.policyVersion).toMatch(/^\d{4}-\d{2}-\d{2}$/);
   expect(payload).toMatchObject({ checkIn: date(10), checkOut: date(13), guests: 3, name: 'Island Guest', email: 'guest@example.com',phone:'+639171234567',whatsapp:true,room:'KASAG' });
 });
 test('owner must verify existing reservations before publishing; key is not persisted', async ({ page }) => {
@@ -162,7 +170,7 @@ test('owner cancellation requires guest agreement and sends the intended action'
   await expect(page.locator('.owner-request-status')).toHaveText('cancelled');
 });
 
-test('owner reviews occupancy and verifies the manual deposit before confirming', async ({ page }) => {
+test('owner can confirm the agreed total without recording payment as received', async ({ page }) => {
   let action: unknown;
   let current = 'pending';
   const booking = () => ({ id: 'c9dc880a-c70d-4a90-bcd2-b509728bd0f5', checkIn: date(10), checkOut: date(12), name: 'Three Guests', email: 'guest@example.com', message: '', guests: 3, extraGuestFeePhp: 1000, status: current });
@@ -180,11 +188,60 @@ test('owner reviews occupancy and verifies the manual deposit before confirming'
   await page.getByLabel('Calendar access key').fill('test-owner-key');
   await page.getByRole('button', { name: 'Unlock calendar' }).click();
   await expect(page.locator('.owner-request-guests')).toHaveText('3 guests · PHP 1,000 extra guest fee (PHP 500/night)');
-  const confirm = page.getByRole('button', { name: 'Confirm agreed stay' });
+  const confirm = page.getByRole('button', { name: 'Confirm booking', exact:true });
   await expect(confirm).toBeDisabled();
   expect(action).toBeUndefined();
-  await page.getByLabel('Total rate agreed and 50% deposit verified in my bank account').check();
+  await page.locator('.owner-booking-review').getByLabel('Agreed accommodation total (PHP)').fill('8000');
+  await expect(page.locator('[data-payment-summary]').last()).toContainText('Required deposit (50%)₱4,000');
+  await expect(page.locator('[data-payment-summary]').last()).toContainText('No payment recorded');
+  await page.getByLabel('I reviewed the agreed total and the payment actually received.').check();
   await confirm.click();
   await expect(page.locator('#owner-requests-status')).toContainText('Stay confirmed and dates blocked');
-  expect(action).toEqual({ id: booking().id, action: 'confirm' });
+  expect(action).toEqual({ id: booking().id, action: 'confirm', sendEmail:false, payment:{totalCents:800000,receivedCents:null} });
+});
+
+test('manual platform and direct reservations offer different email actions', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 900 });
+  const payloads: Array<Record<string, unknown>> = [];
+  await page.route('**/api/admin/session', route => route.fulfill({ json: { authenticated: true } }));
+  await page.route('**/api/admin/availability', route => route.fulfill({ json: { initialized: true, blockedDates: [] } }));
+  await page.route('**/api/admin/settings', route => route.fulfill({ json: { pricing: {}, contacts: {}, bookingSources: ['Partner referral'] } }));
+  await page.route('**/api/admin/calendar-sync', route => route.fulfill({ json: { sources: [] } }));
+  await page.route('**/api/admin/email-outbox**', route => route.fulfill({ json: { jobs: [] } }));
+  await page.route('**/api/admin/booking-requests', route => {
+    if (route.request().method() === 'GET') return route.fulfill({ json: { requests: [] } });
+    const data = route.request().postDataJSON();
+    payloads.push(data);
+    return route.fulfill({ status: 201, json: { request: { ...data, id: data.idempotencyKey, manual: true }, confirmationEmail: data.sendEmail ? 'accepted' : undefined } });
+  });
+  await page.goto('/admin#owner-requests-area');
+  await page.getByText('Add manual reservation', {exact:true}).click();
+  const manual = page.locator('#owner-manual-booking');
+  const values = async (name: string) => {
+    await manual.getByLabel('Guest full name').fill(name);
+    await manual.getByLabel('Check-in').fill(date(10));
+    await manual.getByLabel('Check-out').fill(date(12));
+    await manual.getByLabel('Agreed accommodation total (PHP)').fill('8000');
+  };
+  const source = manual.getByLabel('Reservation source');
+  const send = manual.getByRole('button', {name:'Confirm Booking & Send Email'});
+  await expect(source.getByRole('option', {name:'Partner referral', includeHidden:true})).toHaveCount(1);
+  await values('Platform guest');
+  await source.selectOption('Airbnb');
+  await expect(send).toBeDisabled();
+  await expect(manual.getByText('Set by booking platform')).toBeVisible();
+  await manual.getByLabel('Status when saving without email').selectOption('confirmed');
+  await manual.getByRole('button', {name:'Save Without Sending Email'}).click();
+  await expect(page.locator('#owner-requests-status')).toContainText('Reservation saved as confirmed');
+  expect(payloads[0]).toMatchObject({ source:'Airbnb', sendEmail:false, status:'confirmed', email:'', policyAccepted:false });
+
+  await values('Direct guest');
+  await source.selectOption('Partner referral');
+  await manual.getByLabel('Guest email').fill('test@example.com');
+  await manual.getByLabel('Payment actually received (PHP)').fill('1500');
+  await manual.getByRole('checkbox', {name:/Guest agreed to the 50%/}).check();
+  await send.click();
+  await expect(page.locator('#owner-requests-status')).toContainText('Accepted by Spacemail');
+  expect(payloads[1]).toMatchObject({ source:'Partner referral', sendEmail:true, status:'confirmed', policyAccepted:true, payment:{ totalCents:800000, receivedCents:150000 } });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });

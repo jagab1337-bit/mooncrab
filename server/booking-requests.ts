@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import {
-  BLOCKED_KEY, CONFIRMED_KEY, IMPORTED_KEY, configured, createRedisCommand,
+  BLOCKED_KEY, CONFIRMED_KEY, CONFIRMED_SOURCES_KEY, IMPORTED_KEY, configured, createRedisCommand,
   INITIALIZED_KEY, isValidDate, monthRange, setHeaders, unavailable,
 } from './availability.ts';
 import type { ApiRequest, ApiResponse, HandlerOptions } from './availability.ts';
@@ -8,11 +8,18 @@ import { authorizeAdmin } from './admin-auth.ts';
 import { normalizePhone, readBusinessSettings } from './business-settings.ts';
 import { calculatePricing } from '../shared/pricing.ts';
 import type { PricingSnapshot } from '../shared/pricing.ts';
-import { prepareBookingEmailJobs, processBookingEmails, EMAIL_OUTBOX_INDEX, EMAIL_PENDING_KEY } from './email-outbox.ts';
+import { DIRECT_POLICY, externalSource, MANUAL_SOURCES, validPayment } from '../shared/booking-terms.ts';
+import type { BookingAgreement, BookingPayment } from '../shared/booking-terms.ts';
+import {
+  BOOKING_RECORD_PREFIX, CLAIM_MILLISECONDS, EMAIL_JOB_PREFIX, EMAIL_OUTBOX_INDEX, EMAIL_PENDING_KEY, ENQUEUE_EMAIL_JOB_LUA,
+  prepareBookingEmailJobs, prepareEmailJob, processBookingEmails, processConfirmationEmail,
+} from './email-outbox.ts';
+import type { EmailOptions } from './email-outbox.ts';
 import { calendarSyncStatus } from './external-calendars.ts';
 
-const REQUEST_PREFIX = 'mooncrab:request:';
+const REQUEST_PREFIX = BOOKING_RECORD_PREFIX;
 const REQUEST_INDEX = 'mooncrab:requests';
+const IMPORT_SNAPSHOTS = ['mooncrab:ical:source:airbnb', 'mooncrab:ical:source:booking'] as const;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const EMAIL = /^[A-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Z0-9](?:[A-Z0-9-]*[A-Z0-9])?(?:\.[A-Z0-9](?:[A-Z0-9-]*[A-Z0-9])?)+$/i;
 
@@ -26,6 +33,10 @@ export interface BookingRequest {
   whatsapp?: boolean;
   room?: 'KASAG';
   pricing?: PricingSnapshot;
+  agreement?: BookingAgreement;
+  payment?: BookingPayment;
+  source?: string;
+  manual?: true;
   message: string;
   guests: number;
   extraGuestFeePhp: number;
@@ -99,7 +110,23 @@ function safeRecord(value: unknown): BookingRequest {
   const optional: Partial<BookingRequest> = {};
   if (record.phone !== undefined) {
     if (!normalizePhone(record.phone) || typeof record.whatsapp !== 'boolean' || record.room !== 'KASAG') throw new Error('Invalid contact record');
-    optional.phone=record.phone;optional.whatsapp=record.whatsapp;optional.room='KASAG';
+    optional.phone = record.phone; optional.whatsapp = record.whatsapp;
+  }
+  if (record.room === 'KASAG') optional.room = record.room;
+  if (record.manual === true) {
+    if (typeof record.source !== 'string' || !record.source || record.source.length > 60) throw new Error('Invalid booking source');
+    optional.manual = true; optional.source = record.source;
+  }
+  if (record.agreement !== undefined) {
+    const { version, acceptedAt, recordedBy } = record.agreement;
+    if (typeof version !== 'string' || typeof acceptedAt !== 'string' || !Number.isFinite(Date.parse(acceptedAt))
+      || !['guest', 'host'].includes(recordedBy)) throw new Error('Invalid booking agreement');
+    optional.agreement = { version, acceptedAt, recordedBy };
+  }
+  if (record.payment !== undefined) {
+    if (!validPayment(record.payment)) throw new Error('Invalid booking payment');
+    const { totalCents, receivedCents } = record.payment;
+    optional.payment = { totalCents, receivedCents };
   }
   if (record.pricing !== undefined) {
     const p=record.pricing;
@@ -113,7 +140,7 @@ function safeRecord(value: unknown): BookingRequest {
   return { id, checkIn, checkOut, name, email, message, guests, extraGuestFeePhp, status, createdAt, updatedAt, ...optional };
 }
 
-export const CREATE_REQUEST_SCRIPT = `
+export const CREATE_REQUEST_SCRIPT = `${ENQUEUE_EMAIL_JOB_LUA}
 if redis.call('GET', KEYS[1]) ~= '1' then return {'unavailable'} end
 local previous = redis.call('GET', KEYS[4])
 if previous then
@@ -137,11 +164,7 @@ redis.call('SET', KEYS[4], cjson.encode({id=ARGV[5], digest=ARGV[4]}))
 redis.call('EXPIREAT', KEYS[4], ARGV[7])
 local jobs = cjson.decode(ARGV[8])
 for _, job in ipairs(jobs) do
-  local jobKey = 'mooncrab:email-job:' .. job.id
-  redis.call('SET', jobKey, cjson.encode(job), 'NX')
-  redis.call('EXPIREAT', jobKey, job.expiresAtUnix)
-  redis.call('ZADD', KEYS[10], ARGV[3], job.id)
-  redis.call('ZADD', KEYS[11], ARGV[3], job.id)
+  enqueueEmail(job, 'mooncrab:email-job:', KEYS[10], KEYS[11], ARGV[3])
 end
 return {'created', ARGV[5], ARGV[1]}
 `;
@@ -160,12 +183,56 @@ end
 return records
 `;
 
-export const ACTION_REQUEST_SCRIPT = `
+const CHECK_BOOKING_DATES_LUA = `
+local function datesConflict(record, dates, blocked, confirmed, imported, airbnb, bookingCom, provider)
+  local hasImported = false
+  for _, date in ipairs(dates) do
+    if redis.call('SISMEMBER', blocked, date) == 1 or redis.call('SISMEMBER', confirmed, date) == 1 then return true end
+    if redis.call('SISMEMBER', imported, date) == 1 then hasImported = true end
+  end
+  if not hasImported then return false end
+  if provider == '' then return true end
+  -- A manual platform record may mirror one unambiguous imported stay.
+  local matches = 0
+  for _, feed in ipairs({airbnb, bookingCom}) do
+    local raw = redis.call('GET', feed)
+    if raw then
+      for _, event in ipairs(cjson.decode(raw).events) do
+        if event.checkIn < record.checkOut and event.checkOut > record.checkIn then
+          if event.source ~= provider or event.checkIn ~= record.checkIn or event.checkOut ~= record.checkOut then return true end
+          matches = matches + 1
+        end
+      end
+    end
+  end
+  return matches ~= 1
+end
+local function blockConfirmed(dates, confirmed, sources, provider)
+  for _, date in ipairs(dates) do
+    redis.call('SADD', confirmed, date)
+    if provider ~= '' then redis.call('HSET', sources, date, provider) end
+  end
+end`;
+
+export const ACTION_REQUEST_SCRIPT = `${ENQUEUE_EMAIL_JOB_LUA}\n${CHECK_BOOKING_DATES_LUA}
 local raw = redis.call('GET', KEYS[1])
 if not raw then return {'not_found'} end
 local record = cjson.decode(raw)
-if ARGV[1] == 'cancel' then
+if ARGV[1] == 'payment' then
+  if record.status ~= 'confirmed' or record.updatedAt ~= ARGV[10] then return {'already_actioned'} end
+  record.payment = cjson.decode(ARGV[5])
+elseif ARGV[1] == 'cancel' then
   if record.status ~= 'confirmed' then return {'already_actioned'} end
+  local jobRaw = redis.call('GET', KEYS[11])
+  if jobRaw then
+    local job = cjson.decode(jobRaw)
+    if job.status == 'sending' and tonumber(job.attemptStartedAt or 0) + tonumber(ARGV[9]) >= tonumber(ARGV[7]) then return {'email_sending'} end
+    if job.status == 'queued' then
+      job.status = 'suppressed'; job.updatedAt = ARGV[3]; job.lastError = 'The reservation was cancelled before sending.'
+      redis.call('SET', KEYS[11], cjson.encode(job)); redis.call('EXPIREAT', KEYS[11], job.expiresAtUnix)
+      redis.call('ZREM', KEYS[7], job.id)
+    end
+  end
 else
   if record.status ~= 'pending' then return {'already_actioned'} end
 end
@@ -173,22 +240,45 @@ local dates = cjson.decode(ARGV[2])
 if #dates == 0 then return {'invalid_record'} end
 if ARGV[1] == 'confirm' then
   if redis.call('GET', KEYS[4]) ~= '1' then return {'unavailable'} end
-  for _, date in ipairs(dates) do
-    if redis.call('SISMEMBER', KEYS[2], date) == 1 or redis.call('SISMEMBER', KEYS[3], date) == 1 or redis.call('SISMEMBER', KEYS[5], date) == 1 then return {'conflict'} end
-  end
-  for _, date in ipairs(dates) do redis.call('SADD', KEYS[3], date) end
+  if datesConflict(record, dates, KEYS[2], KEYS[3], KEYS[5], KEYS[8], KEYS[9], ARGV[8]) then return {'conflict'} end
+  blockConfirmed(dates, KEYS[3], KEYS[10], ARGV[8])
   record.status = 'confirmed'
+  record.payment = cjson.decode(ARGV[5])
+  if ARGV[6] ~= '' then enqueueEmail(cjson.decode(ARGV[6]), 'mooncrab:email-job:', KEYS[6], KEYS[7], ARGV[7]) end
 elseif ARGV[1] == 'cancel' then
-  for _, date in ipairs(dates) do redis.call('SREM', KEYS[3], date) end
+  for _, date in ipairs(dates) do
+    if not record.blockedFrom or date >= record.blockedFrom then
+      redis.call('SREM', KEYS[3], date); redis.call('HDEL', KEYS[10], date)
+    end
+  end
   record.status = 'cancelled'
-else
+elseif ARGV[1] == 'decline' then
   record.status = 'declined'
 end
 record.updatedAt = ARGV[3]
 local updated = cjson.encode(record)
 redis.call('SET', KEYS[1], updated)
-redis.call('EXPIREAT', KEYS[1], ARGV[4])
+if not record.manual then redis.call('EXPIREAT', KEYS[1], ARGV[4]) end
 return {'updated', updated}
+`;
+
+export const CREATE_MANUAL_BOOKING_SCRIPT = `${ENQUEUE_EMAIL_JOB_LUA}\n${CHECK_BOOKING_DATES_LUA}
+local previous = redis.call('GET', KEYS[1])
+if previous then
+  if cjson.decode(previous).manualDigest == ARGV[2] then return {'duplicate', previous} end
+  return {'idempotency_conflict'}
+end
+local record = cjson.decode(ARGV[1])
+local dates = cjson.decode(ARGV[3])
+if record.status == 'confirmed' and #dates > 0 then
+  if redis.call('GET', KEYS[4]) ~= '1' then return {'unavailable'} end
+  if datesConflict(record, dates, KEYS[2], KEYS[3], KEYS[5], KEYS[9], KEYS[10], ARGV[6]) then return {'conflict'} end
+  blockConfirmed(dates, KEYS[3], KEYS[11], ARGV[6])
+end
+redis.call('SET', KEYS[1], ARGV[1])
+redis.call('ZADD', KEYS[6], ARGV[5], record.id)
+if ARGV[4] ~= '' then enqueueEmail(cjson.decode(ARGV[4]), 'mooncrab:email-job:', KEYS[7], KEYS[8], ARGV[5]) end
+return {'created', ARGV[1]}
 `;
 
 function resultArray(value: unknown): string[] {
@@ -196,7 +286,7 @@ function resultArray(value: unknown): string[] {
   return value;
 }
 
-export function createBookingRequestHandler(options: HandlerOptions = {}) {
+export function createBookingRequestHandler(options: EmailOptions = {}) {
   const env = options.env ?? process.env;
   const now = options.now ?? (() => new Date());
   const command = options.command ?? createRedisCommand(env);
@@ -209,6 +299,11 @@ export function createBookingRequestHandler(options: HandlerOptions = {}) {
     }
     if (!jsonRequest(req)) {
       res.status(415).json({ error: 'Send an application/json request.' });
+      return;
+    }
+    const policy = req.body as Record<string, unknown> | undefined;
+    if (policy?.policyAccepted !== true || policy.policyVersion !== DIRECT_POLICY.version) {
+      res.status(400).json({ error: 'Review and agree to the current booking and cancellation policy before submitting. Refresh the page if the policy changed.' });
       return;
     }
     const currentTime = now();
@@ -228,6 +323,7 @@ export function createBookingRequestHandler(options: HandlerOptions = {}) {
         id, checkIn: input.checkIn, checkOut: input.checkOut,
         name: input.name, email: input.email, message: input.message,
         phone:input.phone, whatsapp:input.whatsapp,room:'KASAG',pricing,
+        agreement: { version: DIRECT_POLICY.version, acceptedAt: timestamp, recordedBy: 'guest' },
         guests: input.guests, extraGuestFeePhp: input.extraGuestFeePhp,
         status: 'pending', createdAt: timestamp, updatedAt: timestamp,
       };
@@ -236,7 +332,7 @@ export function createBookingRequestHandler(options: HandlerOptions = {}) {
       const ip = typeof forwarded === 'string' ? forwarded.split(',')[0].trim().slice(0, 100) : '';
       const hour = Math.floor(currentTime.getTime() / 3_600_000);
       // Rates may change between retries; idempotency identifies guest intent, not the new quote.
-      const digest = hash(JSON.stringify({ ...record, id: undefined, createdAt: undefined, updatedAt: undefined, pricing:undefined }));
+      const digest = hash(JSON.stringify({ ...record, id: undefined, createdAt: undefined, updatedAt: undefined, pricing:undefined, agreement: DIRECT_POLICY.version }));
       const result = resultArray(await command([
         'EVAL', CREATE_REQUEST_SCRIPT, 11,
         INITIALIZED_KEY, BLOCKED_KEY, CONFIRMED_KEY,
@@ -254,7 +350,7 @@ export function createBookingRequestHandler(options: HandlerOptions = {}) {
           const saved = safeRecord(result[2]);
           if(result[0]==='created') {
             // Queue persistence is atomic with the booking. SMTP failures never roll it back.
-            try {await processBookingEmails(saved.id,{env,command,now});} catch { /* Retry through the durable outbox. */ }
+            try {await processBookingEmails(saved.id,{...options,env,command,now});} catch { /* Retry through the durable outbox. */ }
           }
           res.status(result[0] === 'created' ? 201 : 200).json({ id: result[1], status: saved.status, room:saved.room??'KASAG', checkIn:saved.checkIn,checkOut:saved.checkOut,guests:saved.guests,nights:stayNights(saved.checkIn,saved.checkOut).length,pricing:saved.pricing });
           return;
@@ -275,14 +371,75 @@ export function createBookingRequestHandler(options: HandlerOptions = {}) {
   };
 }
 
-export function createAdminBookingRequestsHandler(options: HandlerOptions = {}) {
+function confirmationJob(record: BookingRequest, now: Date) {
+  return JSON.stringify(prepareEmailJob({ ...record, status: 'confirmed' }, 'confirmation', now));
+}
+
+async function calendarsReady(options: Required<Pick<HandlerOptions, 'env' | 'command'>>, at: Date): Promise<boolean> {
+  const { env, command } = options;
+  if (!env.AIRBNB_ICAL_URL && !env.BOOKING_COM_ICAL_URL) return true;
+  const sync = await calendarSyncStatus(command, env, at);
+  return !sync.sources.some(source => source.configured && (source.stale || source.error));
+}
+
+async function saveManualBooking(body: Record<string, unknown>, res: ApiResponse, options: EmailOptions & Required<Pick<HandlerOptions, 'env' | 'command'>>, at: Date) {
+  const { command } = options;
+  const { checkIn, checkOut, room, guests, status, payment, idempotencyKey, sendEmail } = body;
+  const range = monthRange(at);
+  const name = typeof body.name === 'string' ? body.name.trim() : '';
+  const email = typeof body.email === 'string' ? body.email.trim().toLowerCase() : '';
+  const phone = body.phone ? normalizePhone(body.phone) : '';
+  const message = typeof body.message === 'string' ? body.message.trim() : '';
+  const nights = isValidDate(checkIn) && isValidDate(checkOut) ? stayNights(checkIn, checkOut) : [];
+  if (!isValidDate(checkIn) || !isValidDate(checkOut) || checkIn < '1900-01-01' || checkOut > range.lastDate || !nights.length || nights.length > 90
+    || room !== 'KASAG' || typeof guests !== 'number' || !Number.isInteger(guests) || guests < 1 || guests > 3
+    || name.length < 2 || name.length > 100 || /[\u0000-\u001f]/.test(name) || email.length > 254 || (email && !EMAIL.test(email))
+    || phone === null || message.length > 2000 || /[\u0000-\u0008\u000b\u000c\u000e-\u001f]/.test(message)
+    || !validPayment(payment) || typeof idempotencyKey !== 'string' || !UUID.test(idempotencyKey)
+    || (status !== 'confirmed' && status !== 'pending' && status !== 'cancelled' && status !== 'declined') || typeof sendEmail !== 'boolean') {
+    res.status(400).json({ error: 'Enter valid guest details, dates, room, booking status, and accommodation and payment amounts. Include a country code for phone numbers.' }); return;
+  }
+  const settings = await readBusinessSettings(command);
+  const source = [...MANUAL_SOURCES, ...settings.bookingSources].find(candidate => candidate === body.source);
+  if (!source) { res.status(400).json({ error: 'Choose a configured booking source.' }); return; }
+  const provider = externalSource(source);
+  const accepted = !provider && body.policyAccepted === true && body.policyVersion === DIRECT_POLICY.version;
+  if (sendEmail && (status !== 'confirmed' || !email || !accepted || checkIn < range.today)) {
+    res.status(400).json({ error: 'To send a confirmation, choose a current or upcoming direct stay, provide the guest email, and record their policy agreement.' }); return;
+  }
+  const activeNights = nights.filter(night => night >= range.today);
+  if (status === 'confirmed' && activeNights.length && !await calendarsReady(options, at)) {
+    res.status(409).json({ error: 'Sync the configured external calendars successfully before confirming this stay. Existing blocks remain protected.' }); return;
+  }
+  const timestamp = at.toISOString();
+  const record: BookingRequest = {
+    id: idempotencyKey.toLowerCase(), checkIn, checkOut, name, email, room, guests, extraGuestFeePhp: guests === 3 ? nights.length * 500 : 0,
+    status, message, manual: true, source, payment: { totalCents: payment.totalCents, receivedCents: payment.receivedCents }, createdAt: timestamp, updatedAt: timestamp,
+    ...(phone ? { phone, whatsapp: body.whatsapp === true } : {}),
+    ...(accepted ? { agreement: { version: DIRECT_POLICY.version, acceptedAt: timestamp, recordedBy: 'host' } } : {}),
+  };
+  const manualDigest = createHash('sha256').update(JSON.stringify({ ...record, createdAt: undefined, updatedAt: undefined, agreement: record.agreement?.version, sendEmail })).digest('hex');
+  const result = resultArray(await command([
+    'EVAL', CREATE_MANUAL_BOOKING_SCRIPT, 11, REQUEST_PREFIX + record.id, BLOCKED_KEY, CONFIRMED_KEY, INITIALIZED_KEY, IMPORTED_KEY,
+    REQUEST_INDEX, EMAIL_OUTBOX_INDEX, EMAIL_PENDING_KEY, ...IMPORT_SNAPSHOTS, CONFIRMED_SOURCES_KEY,
+    JSON.stringify({ ...record, manualDigest, blockedFrom: range.today }), manualDigest, JSON.stringify(activeNights), sendEmail ? confirmationJob(record, at) : '', at.getTime(), provider ?? '',
+  ]));
+  if (result[0] === 'conflict') { res.status(409).json({ error: 'This stay overlaps blocked or confirmed dates. For a platform booking, the imported stay must match its dates and source exactly.' }); return; }
+  if (result[0] === 'idempotency_conflict') { res.status(409).json({ error: 'This entry has already been used. Refresh bookings before adding another reservation.' }); return; }
+  if (result[0] !== 'created' && result[0] !== 'duplicate') { unavailable(res); return; }
+  const saved = safeRecord(result[1]);
+  const confirmationEmail = sendEmail && result[0] === 'created' ? await processConfirmationEmail(saved.id, options) : undefined;
+  res.status(result[0] === 'created' ? 201 : 200).json({ request: saved, confirmationEmail });
+}
+
+export function createAdminBookingRequestsHandler(options: EmailOptions = {}) {
   const env = options.env ?? process.env;
   const now = options.now ?? (() => new Date());
   const command = options.command ?? createRedisCommand(env);
   return async (req: ApiRequest, res: ApiResponse): Promise<void> => {
     setHeaders(res);
-    if (req.method !== 'GET' && req.method !== 'PATCH') {
-      res.setHeader('Allow', 'GET, PATCH');
+    if (req.method !== 'GET' && req.method !== 'PATCH' && req.method !== 'POST') {
+      res.setHeader('Allow', 'GET, PATCH, POST');
       res.status(405).json({ error: 'Method not allowed.' });
       return;
     }
@@ -296,35 +453,55 @@ export function createAdminBookingRequestsHandler(options: HandlerOptions = {}) 
       }
       if (!jsonRequest(req)) { res.status(415).json({ error: 'Send an application/json request.' }); return; }
       const body = req.body as Record<string, unknown> | undefined;
-      if (!body || typeof body !== 'object' || typeof body.id !== 'string' || !UUID.test(body.id) || typeof body.action !== 'string' || !['confirm', 'decline', 'cancel'].includes(body.action)) {
-        res.status(400).json({ error: 'Provide a request ID and confirm, decline, or cancel action.' });
+      const at = now();
+      const emailOptions = { ...options, env, command, now };
+      if (req.method === 'POST') {
+        if (!body || typeof body !== 'object' || Array.isArray(body)) { res.status(400).json({ error: 'Provide manual booking details.' }); return; }
+        await saveManualBooking(body, res, emailOptions, at);
+        return;
+      }
+      if (!body || typeof body !== 'object' || typeof body.id !== 'string' || !UUID.test(body.id) || typeof body.action !== 'string' || !['confirm', 'decline', 'cancel', 'payment'].includes(body.action)) {
+        res.status(400).json({ error: 'Provide a request ID and a valid booking action.' });
         return;
       }
       const key = `${REQUEST_PREFIX}${body.id}`;
       const raw = await command(['GET', key]);
       if (raw === null) { res.status(404).json({ error: 'Request not found.' }); return; }
       const record = safeRecord(raw);
-      if (body.action === 'confirm' && record.checkIn < monthRange(now()).today) {
+      if (body.action === 'confirm' && record.checkIn < monthRange(at).today) {
         res.status(409).json({ error: 'This stay has already started. Contact the guest to arrange new dates.' });
         return;
       }
-      if(body.action==='confirm'&&(env.AIRBNB_ICAL_URL||env.BOOKING_COM_ICAL_URL)){
-        const sync=await calendarSyncStatus(command,env,now());
-        if(sync.sources.some(source=>source.configured&&(source.stale||source.error))){
-          res.status(409).json({error:'Sync the configured external calendars successfully before confirming this stay. Existing blocks remain protected.'});return;
-        }
+      const payment = validPayment(body.payment) ? { totalCents: body.payment.totalCents, receivedCents: body.payment.receivedCents } : undefined;
+      if ((body.action === 'confirm' || body.action === 'payment') && (!payment || (body.action === 'payment' && typeof body.expectedUpdatedAt !== 'string'))) {
+        res.status(400).json({ error: 'Enter the agreed accommodation total and any payment actually received.' }); return;
+      }
+      const provider = externalSource(record.source);
+      const sendEmail = body.action === 'confirm' && !provider && (!record.manual || body.sendEmail === true);
+      if (sendEmail && (!EMAIL.test(record.email) || (record.manual && record.agreement?.version !== DIRECT_POLICY.version))) {
+        res.status(400).json({ error: 'A valid guest email and, for manual entries, a recorded direct-booking policy agreement are required.' }); return;
+      }
+      if (body.action === 'confirm' && !await calendarsReady(emailOptions, at)) {
+        res.status(409).json({ error: 'Sync the configured external calendars successfully before confirming this stay. Existing blocks remain protected.' }); return;
       }
       const nights = stayNights(record.checkIn, record.checkOut);
       if (!nights.length || nights.length > 90) { unavailable(res); return; }
       const result = resultArray(await command([
-        'EVAL', ACTION_REQUEST_SCRIPT, 5, key, BLOCKED_KEY, CONFIRMED_KEY, INITIALIZED_KEY, IMPORTED_KEY,
-        body.action, JSON.stringify(nights), now().toISOString(), requestExpiry(record.checkOut),
+        'EVAL', ACTION_REQUEST_SCRIPT, 11, key, BLOCKED_KEY, CONFIRMED_KEY, INITIALIZED_KEY, IMPORTED_KEY, EMAIL_OUTBOX_INDEX, EMAIL_PENDING_KEY,
+        ...IMPORT_SNAPSHOTS, CONFIRMED_SOURCES_KEY, `${EMAIL_JOB_PREFIX}${record.id}:confirmation`,
+        body.action, JSON.stringify(nights), at.toISOString(), requestExpiry(record.checkOut), JSON.stringify(payment ?? null),
+        sendEmail ? confirmationJob({ ...record, payment }, at) : '', at.getTime(), provider ?? '', CLAIM_MILLISECONDS, String(body.expectedUpdatedAt ?? ''),
       ]));
       switch (result[0]) {
-        case 'updated': res.status(200).json({ request: safeRecord(result[1]) }); return;
+        case 'updated': {
+          const saved = safeRecord(result[1]);
+          const confirmationEmail = sendEmail ? await processConfirmationEmail(saved.id, emailOptions) : undefined;
+          res.status(200).json({ request: saved, ...(sendEmail ? { confirmationEmail } : {}) }); return;
+        }
         case 'not_found': res.status(404).json({ error: 'Request not found.' }); return;
         case 'conflict': res.status(409).json({ error: 'Those dates are already blocked. Contact the guest before choosing another stay.' }); return;
         case 'already_actioned': res.status(409).json({ error: 'This request has already been actioned. Refresh the list.' }); return;
+        case 'email_sending': res.status(409).json({ error: 'The confirmation email is currently being submitted. Refresh after the attempt finishes before cancelling.' }); return;
         default: unavailable(res);
       }
     } catch { unavailable(res); }

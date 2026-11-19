@@ -2,6 +2,8 @@
 
 The recommended signature uses the full Mooncrab logo, verified contact details, and two useful QR codes: booking and WhatsApp. The expanded version adds Instagram and Google Maps QR codes. All text links remain clickable, so recipients can use them on the same device.
 
+The cocoa **Chat on WhatsApp** button is the primary contact. The outlined Facebook, Instagram, and website buttons remain readable when remote images are blocked. The Facebook button opens Messenger for Moon Crab IAO. Button icons are from Bootstrap Icons under the included MIT license.
+
 ## Install the recommended signature
 
 1. Open https://mooncrabsiargao.com/email-signature/ after the update is live.

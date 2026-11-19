@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createAdminBookingRequestsHandler, createBookingRequestHandler as realCreateBookingRequestHandler, CREATE_REQUEST_SCRIPT, requestExpiry, stayNights } from '../server/booking-requests.ts';
 import type { ApiRequest, Environment, RedisCommand, HandlerOptions } from '../server/availability.ts';
+import { DIRECT_POLICY } from '../shared/booking-terms.ts';
 
 const env: Environment = {
   UPSTASH_REDIS_REST_URL: 'https://calendar.example.invalid',
@@ -21,6 +22,7 @@ function createBookingRequestHandler(options: HandlerOptions = {}) {
 }
 const now = () => new Date('2026-11-17T18:00:00.000Z');
 const id = '371f802b-e248-4189-8b85-12b5a4664f33';
+const payment = { totalCents: 800_000, receivedCents: null };
 const record = {
   id, checkIn: '2026-11-20', checkOut: '2026-11-22', name: 'Test Guest',
   email: 'guest@example.com', message: '', status: 'pending',
@@ -43,6 +45,7 @@ function request(overrides: Partial<ApiRequest> = {}): ApiRequest {
     body: {
       checkIn: '2026-11-20', checkOut: '2026-11-22', name: ' Test Guest ',
       email: 'Guest@Example.com', phone:'+63 962 528 4264', whatsapp:true, room:'KASAG', idempotencyKey: id,
+      policyAccepted: true, policyVersion: DIRECT_POLICY.version,
     },
     ...overrides,
   };
@@ -86,8 +89,21 @@ test('valid guest request is normalized and accepted without exposing guest fiel
   assert.equal(stored.status, 'pending');
   assert.equal(stored.guests, 2);
   assert.equal(stored.extraGuestFeePhp, 0);
+  assert.deepEqual(stored.agreement, { version: DIRECT_POLICY.version, acceptedAt: now().toISOString(), recordedBy: 'guest' });
+  assert.deepEqual(JSON.parse(String(captured[21])).map((job: {kind:string}) => job.kind), ['guest', 'owner']);
   assert.deepEqual(JSON.parse(String(captured[15])), ['2026-11-20', '2026-11-21']);
   assert.equal(res.headers['cache-control'], 'no-store');
+});
+
+test('the direct request requires current policy assent before any storage', async () => {
+  const base = request().body as Record<string, unknown>;
+  const handler = createBookingRequestHandler({ env, now, command: async () => { assert.fail('Must validate before storage'); } });
+  for (const fields of [{ policyAccepted:false }, { policyAccepted: undefined }, { policyVersion:'outdated' }]) {
+    const res = response();
+    await handler(request({ body: { ...base, ...fields } }), res);
+    assert.equal(res.code, 400);
+    assert.match(String((res.body as {error:string}).error), /agree to the current/);
+  }
 });
 
 test('guest counts must be integers from one to three before storage is called', async () => {
@@ -255,23 +271,26 @@ test('owner records show validated occupancy and the computed extra guest supple
 
 test('owner confirmation submits an atomic action for the correct occupied nights', async () => {
   const commands: Array<Array<string | number>> = [];
-  const confirmed = { ...record, status: 'confirmed' };
+  const confirmed = { ...record, status: 'confirmed', payment };
   const command: RedisCommand = async (args) => {
     commands.push(args);
     return args[0] === 'GET' ? JSON.stringify(record) : ['updated', JSON.stringify(confirmed)];
   };
   const res = response();
-  await createAdminBookingRequestsHandler({ env, now, command })(adminRequest({ method: 'PATCH', body: { id, action: 'confirm' } }), res);
+  await createAdminBookingRequestsHandler({ env, now, command })(adminRequest({ method: 'PATCH', body: { id, action: 'confirm', payment } }), res);
   assert.equal(res.code, 200);
-  assert.deepEqual(res.body, { request: confirmed });
+  assert.deepEqual(res.body, { request: confirmed, confirmationEmail: 'queued' });
   assert.equal(commands[1][0], 'EVAL');
-  assert.equal(commands[1][8], 'confirm');
-  assert.deepEqual(JSON.parse(String(commands[1][9])), ['2026-11-20', '2026-11-21']);
+  assert.equal(commands[1][14], 'confirm');
+  assert.deepEqual(JSON.parse(String(commands[1][15])), ['2026-11-20', '2026-11-21']);
+  const job = JSON.parse(String(commands[1][19]));
+  assert.equal(job.id, `${id}:confirmation`);
+  assert.deepEqual(job.booking.payment, payment);
 });
 
 test('owner receives conflict when another confirmed stay won the dates', async () => {
   const res = response();
-  await createAdminBookingRequestsHandler({ env, now, command: async (args) => args[0] === 'GET' ? JSON.stringify(record) : ['conflict'] })(adminRequest({ method: 'PATCH', body: { id, action: 'confirm' } }), res);
+  await createAdminBookingRequestsHandler({ env, now, command: async (args) => args[0] === 'GET' ? JSON.stringify(record) : ['conflict'] })(adminRequest({ method: 'PATCH', body: { id, action: 'confirm', payment } }), res);
   assert.equal(res.code, 409);
 });
 
@@ -314,6 +333,6 @@ test('owner can atomically cancel a confirmed stay without changing request expi
   await handler(adminRequest({ method: 'PATCH', body: { id, action: 'cancel' } }), res);
   assert.equal(res.code, 200);
   assert.deepEqual(res.body, { request: cancelled });
-  assert.equal(commands[1][8], 'cancel');
-  assert.equal(commands[1][11], requestExpiry(record.checkOut));
+  assert.equal(commands[1][14], 'cancel');
+  assert.equal(commands[1][17], requestExpiry(record.checkOut));
 });

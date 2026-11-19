@@ -10,6 +10,7 @@ import { readBusinessSettings } from './business-settings.ts';
 export const EMAIL_JOB_PREFIX = 'mooncrab:email-job:';
 export const EMAIL_OUTBOX_INDEX = 'mooncrab:email-outbox';
 export const EMAIL_PENDING_KEY = 'mooncrab:email-pending';
+export const BOOKING_RECORD_PREFIX = 'mooncrab:request:';
 export const NOTIFICATION_SETTINGS_KEY = 'mooncrab:notification-settings';
 const NOTIFICATION_TEST_KEY = 'mooncrab:notification-test';
 type NotificationSettings = { enabled: boolean; recipient: string };
@@ -30,38 +31,44 @@ async function readNotificationSettings(command: RedisCommand): Promise<Notifica
 }
 
 const MAX_ATTEMPTS = 3;
-const CLAIM_MILLISECONDS = 90_000;
-const JOB_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}:(guest|owner)$/i;
+export const CLAIM_MILLISECONDS = 90_000;
+const JOB_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}:(guest|owner|confirmation)$/i;
 
-export type EmailState = 'queued' | 'sending' | 'accepted' | 'failed' | 'unknown';
+export type EmailState = 'queued' | 'sending' | 'accepted' | 'failed' | 'unknown' | 'suppressed';
 export interface EmailJob {
-  id: string; bookingId: string; kind: 'guest' | 'owner'; booking: EmailBooking;
+  id: string; bookingId: string; kind: 'guest' | 'owner' | 'confirmation'; booking: EmailBooking;
   status: EmailState; attempts: number; createdAt: string; updatedAt: string;
   expiresAtUnix: number; claimToken?: string; attemptStartedAt?: number;
-  acceptedAt?: string; messageId?: string; lastError?: string;
+  acceptedAt?: string; messageId?: string; lastError?: string; delivery?: number;
 }
 export interface EmailOptions extends HandlerOptions { send?: EmailSender }
 export type EmailSender = (message: { from: string; to: string; subject: string; html: string; text: string; messageId: string }) => Promise<{ accepted: unknown[]; rejected?: unknown[]; messageId?: string }>;
 
 export function prepareBookingEmailJobs(booking: EmailBooking, now = new Date()): EmailJob[] {
-  const timestamp = now.toISOString();
-  const expiresAtUnix = Math.floor(Date.parse(`${booking.checkOut}T00:00:00+08:00`) / 1000) + 90 * 86_400;
-  return (['guest', 'owner'] as const).map(kind => ({
-    id: `${booking.id}:${kind}`, bookingId: booking.id, kind, booking,
-    status: 'queued', attempts: 0, createdAt: timestamp, updatedAt: timestamp, expiresAtUnix,
-  }));
+  return [prepareEmailJob(booking, 'guest', now), prepareEmailJob(booking, 'owner', now)];
 }
 
-/** The same job payloads can be included in the booking creation Lua transaction. */
-export const ENQUEUE_EMAILS_SCRIPT = `
-local jobs = cjson.decode(ARGV[1])
-for i, job in ipairs(jobs) do
-  local key = ARGV[2] .. job.id
+export function prepareEmailJob(booking: EmailBooking, kind: EmailJob['kind'], now: Date): EmailJob {
+  const timestamp = now.toISOString();
+  const expiresAtUnix = Math.floor(Date.parse(`${booking.checkOut}T00:00:00+08:00`) / 1000) + 90 * 86_400;
+  return { id: `${booking.id}:${kind}`, bookingId: booking.id, kind, booking,
+    status: 'queued', attempts: 0, createdAt: timestamp, updatedAt: timestamp, expiresAtUnix };
+}
+
+export const ENQUEUE_EMAIL_JOB_LUA = `
+local function enqueueEmail(job, prefix, index, pending, at)
+  local key = prefix .. job.id
   if redis.call('SET', key, cjson.encode(job), 'NX') then
     redis.call('EXPIREAT', key, job.expiresAtUnix)
-    redis.call('ZADD', KEYS[1], ARGV[3], job.id)
-    redis.call('ZADD', KEYS[2], ARGV[3], job.id)
+    redis.call('ZADD', index, at, job.id)
+    redis.call('ZADD', pending, at, job.id)
   end
+end`;
+
+export const ENQUEUE_EMAILS_SCRIPT = `${ENQUEUE_EMAIL_JOB_LUA}
+local jobs = cjson.decode(ARGV[1])
+for _, job in ipairs(jobs) do
+  enqueueEmail(job, ARGV[2], KEYS[1], KEYS[2], ARGV[3])
 end
 return #jobs
 `;
@@ -80,6 +87,20 @@ if job.status == 'sending' then
   return nil
 end
 if job.status ~= 'queued' or tonumber(job.attempts) >= tonumber(ARGV[6]) then return nil end
+if job.kind == 'confirmation' or job.kind == 'guest' then
+  local current = redis.call('GET', KEYS[3])
+  local booking = current and cjson.decode(current) or nil
+  local invalidConfirmation = job.kind == 'confirmation' and (not booking or booking.status ~= 'confirmed')
+  local staleAcknowledgment = job.kind == 'guest' and booking and booking.status ~= 'pending'
+  if invalidConfirmation or staleAcknowledgment then
+    job.status = 'suppressed'; job.lastError = 'The reservation status changed before email submission.'
+    job.updatedAt = ARGV[3]
+    redis.call('SET', KEYS[1], cjson.encode(job)); redis.call('EXPIREAT', KEYS[1], job.expiresAtUnix)
+    redis.call('ZREM', KEYS[2], ARGV[1])
+    return nil
+  end
+  if job.kind == 'confirmation' then job.booking = booking end
+end
 job.status = 'sending'; job.attempts = job.attempts + 1; job.claimToken = ARGV[5]
 job.attemptStartedAt = tonumber(ARGV[2]); job.updatedAt = ARGV[3]
 redis.call('SET', KEYS[1], cjson.encode(job)); redis.call('EXPIREAT', KEYS[1], job.expiresAtUnix)
@@ -104,6 +125,20 @@ local job = cjson.decode(raw)
 if job.status ~= 'failed' then return 'unsafe' end
 if tonumber(job.attempts) >= tonumber(ARGV[3]) then return 'limit' end
 job.status = 'queued'; job.updatedAt = ARGV[2]
+redis.call('SET', KEYS[1], cjson.encode(job)); redis.call('EXPIREAT', KEYS[1], job.expiresAtUnix)
+redis.call('ZADD', KEYS[2], ARGV[1], job.id)
+return 'queued'
+`;
+
+export const RESEND_CONFIRMATION_SCRIPT = `
+local raw = redis.call('GET', KEYS[1])
+local booking = redis.call('GET', KEYS[3])
+if not raw or not booking then return 'not_found' end
+local job = cjson.decode(raw)
+if job.kind ~= 'confirmation' or job.status ~= 'accepted' or (job.delivery or 0) ~= tonumber(ARGV[3])
+  or cjson.decode(booking).status ~= 'confirmed' then return 'unsafe' end
+job.status = 'queued'; job.updatedAt = ARGV[2]; job.delivery = (job.delivery or 0) + 1
+job.attempts = 0; job.attemptStartedAt = nil; job.lastError = nil; job.acceptedAt = nil; job.messageId = nil
 redis.call('SET', KEYS[1], cjson.encode(job)); redis.call('EXPIREAT', KEYS[1], job.expiresAtUnix)
 redis.call('ZADD', KEYS[2], ARGV[1], job.id)
 return 'queued'
@@ -138,7 +173,7 @@ function smtpSender(env: Environment): EmailSender {
 function safeJob(value: unknown): EmailJob {
   if (typeof value !== 'string') throw new Error('Invalid outbox record');
   const job = JSON.parse(value) as EmailJob;
-  if (!job || !JOB_ID.test(job.id) || job.id !== `${job.bookingId}:${job.kind}` || !['guest', 'owner'].includes(job.kind) || !['queued', 'sending', 'accepted', 'failed', 'unknown'].includes(job.status)
+  if (!job || !JOB_ID.test(job.id) || job.id !== `${job.bookingId}:${job.kind}` || !['guest', 'owner', 'confirmation'].includes(job.kind) || !['queued', 'sending', 'accepted', 'failed', 'unknown', 'suppressed'].includes(job.status)
     || typeof job.attempts !== 'number' || !job.booking || job.booking.id !== job.bookingId || typeof job.booking.email !== 'string'
     || typeof job.expiresAtUnix !== 'number') throw new Error('Invalid outbox record');
   return job;
@@ -164,7 +199,7 @@ async function processJob(id: string, options: EmailOptions): Promise<EmailState
   const settings = await readBusinessSettings(command);
   const started = now();
   const token = randomUUID();
-  const raw = await command(['EVAL', CLAIM_EMAIL_SCRIPT, 2, `${EMAIL_JOB_PREFIX}${id}`, EMAIL_PENDING_KEY, id, started.getTime(), started.toISOString(), CLAIM_MILLISECONDS, token, MAX_ATTEMPTS]);
+  const raw = await command(['EVAL', CLAIM_EMAIL_SCRIPT, 3, `${EMAIL_JOB_PREFIX}${id}`, EMAIL_PENDING_KEY, `${BOOKING_RECORD_PREFIX}${id.split(':')[0]}`, id, started.getTime(), started.toISOString(), CLAIM_MILLISECONDS, token, MAX_ATTEMPTS]);
   if (raw === null) return 'skipped';
   const job = safeJob(raw);
   const recipient = notification?.recipient ?? job.booking.email;
@@ -176,7 +211,7 @@ async function processJob(id: string, options: EmailOptions): Promise<EmailState
   try {
     const result = await (options.send ?? smtpSender(env))({
       from: `${isOwner ? 'Moon Crab Bookings' : 'Moon Crab Siargao'} <${EMAIL_CONTACTS.bookings}>`, to: recipient,
-      ...message, messageId: `<${job.id.replace(':', '.')}@mooncrabsiargao.com>`,
+      ...message, messageId: `<${job.id.replace(':', '.')}${job.delivery ? `.${job.delivery}` : ''}@mooncrabsiargao.com>`,
     });
     if (!result.accepted.length || result.rejected?.length) {
       job.status = 'failed'; job.lastError = 'The SMTP server did not accept this recipient. Review the recipient and retry deliberately.';
@@ -191,6 +226,13 @@ async function processJob(id: string, options: EmailOptions): Promise<EmailState
   job.updatedAt = now().toISOString();
   await command(['EVAL', FINISH_EMAIL_SCRIPT, 2, `${EMAIL_JOB_PREFIX}${id}`, EMAIL_PENDING_KEY, token, JSON.stringify(job)]);
   return job.status;
+}
+
+export async function processConfirmationEmail(bookingId: string, options: EmailOptions): Promise<string> {
+  try {
+    const result = await processJob(`${bookingId}:confirmation`, options);
+    return result === 'skipped' ? 'queued' : result;
+  } catch { return 'pending review'; }
 }
 
 export async function enqueueBookingEmails(booking: EmailBooking, options: EmailOptions = {}): Promise<void> {
@@ -213,10 +255,19 @@ export async function drainEmailOutbox(options: EmailOptions = {}, limit = 4): P
   const readiness = smtpReadiness(env);
   if (!readiness.configured) return { attempted: 0, states: [], blockedReason: readiness.reason };
   const command = options.command ?? createRedisCommand(env);
-  const ids = await command(['ZRANGE', EMAIL_PENDING_KEY, 0, Math.min(Math.max(limit, 1), 10) - 1]);
-  if (!Array.isArray(ids) || ids.some(id => typeof id !== 'string' || !JOB_ID.test(id))) throw new Error('Invalid outbox index');
+  const maxAttempts = Math.min(Math.max(limit, 1), 10);
+  const ownerEnabled = (await readNotificationSettings(command)).enabled;
+  const ids: string[] = [];
+  const pageSize = ownerEnabled ? maxAttempts : 50;
+  // While owner notifications are off, skip their queued jobs without losing them.
+  for (let offset = 0; ids.length < maxAttempts && offset < 500; offset += pageSize) {
+    const page = await command(['ZRANGE', EMAIL_PENDING_KEY, offset, offset + pageSize - 1]);
+    if (!Array.isArray(page) || page.some(id => typeof id !== 'string' || !JOB_ID.test(id))) throw new Error('Invalid outbox index');
+    ids.push(...page.filter(id => ownerEnabled || !id.endsWith(':owner')));
+    if (page.length < pageSize) break;
+  }
   const states = [];
-  for (const id of ids) states.push(await processJob(id, options));
+  for (const id of ids.slice(0, maxAttempts)) states.push(await processJob(id, options));
   return { attempted: states.filter(state => state !== 'skipped').length, states, blockedReason: null };
 }
 
@@ -283,7 +334,7 @@ export function createEmailOutboxHandler(options: EmailOptions = {}) {
           if (!ids.length || ids.length > 50 || ids.some(id => !JOB_ID.test(id))) {
             res.status(400).json({ error: 'Provide up to 50 booking identifiers.' }); return;
           }
-          const found = await command(['MGET', ...ids.map(id => EMAIL_JOB_PREFIX + id)]);
+          const found = await command(['MGET', ...ids.flatMap(id => [EMAIL_JOB_PREFIX + id, EMAIL_JOB_PREFIX + id.replace(/:owner$/, ':confirmation')])]);
           if (!Array.isArray(found)) throw new Error('Invalid outbox lookup');
           rows = found;
         } else {
@@ -292,24 +343,37 @@ export function createEmailOutboxHandler(options: EmailOptions = {}) {
           rows = await Promise.all(ids.map(id => command(['GET', EMAIL_JOB_PREFIX + id])));
         }
         const jobs = rows.filter(value => value !== null).map(value => {
-          const { id, bookingId, kind, status, attempts, createdAt, updatedAt, acceptedAt, lastError, attemptStartedAt } = safeJob(value);
-          return { id, bookingId, kind, status, attempts, createdAt, updatedAt, acceptedAt, lastError, lastAttempt: attemptStartedAt ? new Date(attemptStartedAt).toISOString() : undefined, safeToRetry: status === 'failed' && attempts < MAX_ATTEMPTS };
+          const { id, bookingId, kind, status, attempts, createdAt, updatedAt, acceptedAt, lastError, attemptStartedAt, booking, delivery } = safeJob(value);
+          return { id, bookingId, kind, status, attempts, createdAt, updatedAt, acceptedAt, lastError, lastAttempt: attemptStartedAt ? new Date(attemptStartedAt).toISOString() : undefined, safeToRetry: status === 'failed' && attempts < MAX_ATTEMPTS,
+            ...(lookup !== undefined && kind === 'confirmation' ? { recipient: booking.email, delivery: delivery ?? 0 } : {}) };
         });
         const smtp = smtpReadiness(env);
-        const counts = { queued: 0, sending: 0, accepted: 0, failed: 0, unknown: 0 };
+        const counts = { queued: 0, sending: 0, accepted: 0, failed: 0, unknown: 0, suppressed: 0 };
         for (const job of jobs) counts[job.status]++;
         res.status(200).json({ smtp, config: { configured: smtp.configured, blockedReasons: smtp.reason ? [smtp.reason] : [] }, counts, jobs, note: 'Accepted means accepted by SMTP, not delivered to the recipient inbox. Counts cover the most recent 50 retained jobs. Unknown attempts need manual mailbox reconciliation.' }); return;
       }
       const contentType = req.headers['content-type'];
       if (typeof contentType !== 'string' || contentType.split(';')[0] !== 'application/json') { res.status(415).json({ error: 'Send an application/json request.' }); return; }
-      const body = req.body as { action?: unknown; id?: unknown } | undefined;
+      const body = req.body as { action?: unknown; id?: unknown; delivery?: unknown } | undefined;
+      if (body?.action === 'submit-confirmation' && typeof body.id === 'string' && JOB_ID.test(body.id) && body.id.endsWith(':confirmation')) {
+        const smtp = smtpReadiness(env);
+        if (!smtp.configured) { res.status(409).json({ error: smtp.reason }); return; }
+        res.status(200).json({ state: await processConfirmationEmail(body.id.split(':')[0], { ...options, env, command }) }); return;
+      }
+      if (body?.action === 'resend' && typeof body.id === 'string' && JOB_ID.test(body.id) && body.id.endsWith(':confirmation') && Number.isSafeInteger(body.delivery)) {
+        const started = (options.now ?? (() => new Date()))();
+        const result = await command(['EVAL', RESEND_CONFIRMATION_SCRIPT, 3, EMAIL_JOB_PREFIX + body.id, EMAIL_PENDING_KEY,
+          BOOKING_RECORD_PREFIX + body.id.split(':')[0], started.getTime(), started.toISOString(), body.delivery as number]);
+        if (result !== 'queued') { res.status(result === 'not_found' ? 404 : 409).json({ error: 'Refresh the reservation. Resend requires a previously accepted confirmation for a stay that is still confirmed.' }); return; }
+        res.status(200).json({ state: await processConfirmationEmail(body.id.split(':')[0], { ...options, env, command }) }); return;
+      }
       if (body?.action === 'retry' && typeof body.id === 'string' && JOB_ID.test(body.id)) {
         const now = (options.now ?? (() => new Date()))();
         const result = await command(['EVAL', RETRY_EMAIL_SCRIPT, 2, `${EMAIL_JOB_PREFIX}${body.id}`, EMAIL_PENDING_KEY, now.getTime(), now.toISOString(), MAX_ATTEMPTS]);
-        if (result !== 'queued') { res.status(result === 'not_found' ? 404 : 409).json({ error: 'Only definite failed attempts below the retry limit can be retried. Unknown or accepted messages cannot be resent here.' }); return; }
+        if (result !== 'queued') { res.status(result === 'not_found' ? 404 : 409).json({ error: 'Retry requires a definite failed attempt below the retry limit.' }); return; }
         res.status(200).json({ state: await processJob(body.id, { ...options, env, command }) }); return;
       }
-      if (body?.action !== 'drain') { res.status(400).json({ error: 'Choose drain or retry with a valid job ID.' }); return; }
+      if (body?.action !== 'drain') { res.status(400).json({ error: 'Choose a valid email action and job ID.' }); return; }
       res.status(200).json(await drainEmailOutbox({ ...options, env, command }));
     } catch { res.status(503).json({ error: 'Email processing is temporarily unavailable. Stored booking requests are preserved.' }); }
   };

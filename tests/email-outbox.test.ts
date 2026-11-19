@@ -11,6 +11,7 @@ import type { EmailJob, EmailSender } from '../server/email-outbox.ts';
 import { bookingEmail, firstName } from '../server/email-templates.ts';
 import type { EmailBooking } from '../server/email-templates.ts';
 import type { Environment, RedisCommand } from '../server/availability.ts';
+import { DIRECT_POLICY } from '../shared/booking-terms.ts';
 
 const id = '242c4998-09a4-4876-bd8d-e3bdc5cd1195';
 const fixedNow = new Date('2026-11-18T00:00:00Z');
@@ -58,13 +59,13 @@ function store() {
     const job = JSON.parse(raw) as EmailJob;
     if (script === CLAIM_EMAIL_SCRIPT) {
       if (job.status === 'sending') {
-        if (Number(job.attemptStartedAt) + Number(args[8]) < Number(args[6])) {
+        if (Number(job.attemptStartedAt) + Number(args[9]) < Number(args[7])) {
           job.status = 'unknown'; delete job.claimToken; values.set(key, JSON.stringify(job)); index(second).delete(job.id);
         }
         return null;
       }
-      if (job.status !== 'queued' || job.attempts >= Number(args[10])) return null;
-      job.status = 'sending'; job.attempts++; job.claimToken = String(args[9]); job.attemptStartedAt = Number(args[6]);
+      if (job.status !== 'queued' || job.attempts >= Number(args[11])) return null;
+      job.status = 'sending'; job.attempts++; job.claimToken = String(args[10]); job.attemptStartedAt = Number(args[7]);
       values.set(key, JSON.stringify(job)); return JSON.stringify(job);
     }
     if (script === FINISH_EMAIL_SCRIPT) {
@@ -110,13 +111,37 @@ test('guest and owner templates preserve actual quote, escape guest HTML, and di
   assert.match(guest.text, /4,000/);
   assert.match(guest.html, /reservation is not yet confirmed/);
   assert.match(guest.html, /https:\/\/wa\.me\/639625284264\?text=/);
-  assert.match(guest.html, /Facebook · open our page/);
+  assert.match(guest.html, /Facebook Messenger/);
   assert.match(guest.text, /Please do not reply/);
   assert.match(owner.html, /href="https:\/\/mooncrabsiargao\.com\/admin#request-/);
   assert.ok(owner.text.includes(`Dashboard: https://mooncrabsiargao.com/admin#request-${id}`));
   assert.doesNotMatch(owner.html + owner.text, /admin\.mooncrabsiargao\.com/);
   assertPublishedSignature(guest);
   assertPublishedSignature(owner);
+});
+
+test('confirmation distinguishes required deposit, verified payments and the outstanding balance', () => {
+  const booking: EmailBooking = { ...record, status: 'confirmed', agreement: { version: DIRECT_POLICY.version, acceptedAt: fixedNow.toISOString(), recordedBy: 'guest' },
+    payment: { totalCents: 800_000, receivedCents: null } };
+  const unpaid = bookingEmail(booking, 'confirmation');
+  assert.match(unpaid.subject, /Booking Is Confirmed/);
+  assert.match(unpaid.text, /Required deposit \(50%\): ₱4,000/);
+  assert.match(unpaid.text, /Payment received: No payment recorded/);
+  assert.match(unpaid.text, /Deposit outstanding: ₱4,000/);
+  assert.match(unpaid.text, /Remaining balance: ₱8,000/);
+  assert.match(unpaid.html, /non-refundable/);
+  assert.match(unpaid.html, /Same-day cancellations are not allowed/);
+  assert.match(unpaid.html, /Chat With Us on WhatsApp/);
+  assert.ok(unpaid.text.includes(id));
+  assertPublishedSignature(unpaid);
+  const partial = bookingEmail({ ...booking, payment: { totalCents: 800_000, receivedCents: 150_000 } }, 'confirmation');
+  assert.match(partial.text, /Payment received: ₱1,500/);
+  assert.match(partial.text, /Remaining balance: ₱6,500/);
+  assert.match(partial.text, /Deposit outstanding: ₱2,500/);
+  const legacy = bookingEmail({ ...booking, agreement: undefined }, 'confirmation');
+  assert.doesNotMatch(legacy.html, /Same-day cancellations|non-refundable/);
+  assert.throws(() => bookingEmail({ ...booking, status: 'pending' }, 'confirmation'));
+  assert.throws(() => bookingEmail({ ...booking, source: 'Airbnb' }, 'confirmation'));
 });
 
 test('SMTP remains blocked until an authorized bookings@ sender is explicitly verified', () => {

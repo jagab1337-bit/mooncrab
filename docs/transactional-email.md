@@ -2,11 +2,19 @@
 
 The booking creation transaction stores the pending request and two email jobs together in the existing Redis database. One job acknowledges the guest; the other notifies the configured owner notification address. No email is generated for a request that failed validation or persistence. The stored server-calculated quote is used in both messages.
 
-Owner notifications use **Moon Crab Bookings <bookings@mooncrabsiargao.com>**. Guest acknowledgments use the same address with the Moon Crab Siargao display name. It does not use a different sender when that alias is unavailable. The connected Spacemail tool can send from its current mailbox, but does not provide the sender/HTML/server-runtime configuration required for this automation or mailbox-signature management.
+Owner notifications use **Moon Crab Bookings <bookings@mooncrabsiargao.com>**. Guest acknowledgments and official confirmations use the same address with the Moon Crab Siargao display name. The outbox waits for the authorized alias. Spacemail Webmail manages its own compose signature.
+
+## Confirm a stay or add a reservation
+
+- In **Admin → Bookings**, review the guest and dates. Enter the agreed accommodation total and any payment actually received. Leave payment blank when you have no verified amount on record. Confirming a website request saves the reservation, blocks occupied nights, and queues the official guest email in the same Redis transaction.
+- Use **Add manual reservation** and choose a booking source. Use **Confirm Booking & Send Email** for a current or upcoming direct stay with a guest email and recorded policy agreement. Use **Save Without Sending Email** to record an explicit status, including confirmed walk-ins and past reservations. Additional sources are available in **Rates & business settings**.
+- For Airbnb and Booking.com, use the platform’s guest communication and policy. Matching the exact dates and source of a single imported stay allows an internal record without changing the imported event. A conflicting, differently sourced, or ambiguous import remains blocked. Cancelling an internal record leaves the original calendar import in place.
+- Record subsequent payments under **Payment details**. The required 50% deposit and remaining balance are calculated from the agreed total and recorded payments. Approving a booking never records money. Confirmations and deliberate resends read the reservation's current payment record.
+- The booking page requires guests to accept the current policy. The record stores the version and server timestamp. A manual agreement records when the host entered it. Existing reservations keep their original policy context. Same-day cancellation enforcement remains with the host while the meaning of “same-day” is unresolved.
 
 ## Activate booking notifications
 
-On November 19, 2026, Vercel Production had the host, port, and sender address. The admin page had a saved recipient with owner notifications disabled. The provider test had no recorded result. The authorized mailbox login and alias permission require access to the Spaceship account.
+On November 19, 2026, the production dashboard reported that SMTP was ready and owner notifications were enabled. The latest saved dashboard test was accepted by Spacemail. Use these steps if you need to reconfigure the connection or verify a new inbox.
 
 1. In Spaceship, open **Launchpad → Spacemail Manager**. Find the mailbox that should send the notifications. Click the three dots next to it, then **Set aliases**. Verify that `bookings@mooncrabsiargao.com` is assigned to that mailbox. From its Spacemail webmail, send a message from that alias to an inbox you control and confirm the From address on receipt. [Spaceship alias guide](https://www.spaceship.com/en-GB/knowledgebase/setup-email-aliases-spacemail/)
 2. On the mailbox’s three-dot menu, open **IMAP/POP3/SMTP**. Spaceship lists `mail.spacemail.com`, port `465`, with SSL/TLS for outgoing mail. SMTP authenticates using the full primary mailbox address and its mailbox password. Use the address assigned to the mailbox in Spacemail Manager, such as `greetings@mooncrabsiargao.com` if that is the one that owns the alias. [Spacemail client setup](https://www.spaceship.com/knowledgebase/connect-spacemail-to-email-client/)
@@ -21,30 +29,31 @@ If **Send test notification** stays disabled, check the saved recipient and the 
 
 Open **Notification Settings** at `/admin/settings/notifications`. Enter the address that should receive new booking inquiries and enable notifications. An empty recipient is valid while notifications are disabled. The test button sends only to the saved recipient and records the provider response and timestamp. Owner jobs wait in the existing outbox until notifications are enabled and SMTP is configured. You can process saved jobs from the dashboard. Guest acknowledgments remain scheduled separately.
 
-`GET /api/admin/email-outbox` requires an owner session or the existing private bearer key. It returns SMTP readiness, blocked reasons, the most recent 50 retained job summaries, and counts for those summaries. It does not expose SMTP credentials, guest email bodies, or recipient addresses.
+`GET /api/admin/email-outbox` requires an owner session or the existing private bearer key. It returns SMTP readiness, blocked reasons, the most recent 50 retained job summaries, and counts for those summaries. The authenticated per-booking lookup additionally returns the confirmation recipient and the latest sending and acceptance timestamps.
 
 `POST /api/admin/email-outbox` accepts `{ "action": "drain" }` to process up to four queued jobs. A request handler also attempts both newly stored jobs immediately when SMTP is configured. An optional scheduled `GET /api/admin/email-outbox?drain=1` requires `Authorization: Bearer <CRON_SECRET>`. Without a configured schedule, the owner can drain the durable queue from the dashboard; this is not a continuously running worker.
 
-Each job has a stable booking/kind ID, stable Message-ID, atomic Redis claim, and a maximum of three deliberate attempts. States:
+Each job has a stable booking/kind ID, atomic Redis claim, and up to three attempts per submission. **Resend Confirmation** deliberately starts a new submission after a previous confirmation was accepted. Repeated clicks for the same submission are rejected. A claimed job retains the same Message-ID across retries. The outbox shows the latest submission state.
 
 - `queued`: saved and awaiting a configured SMTP sender or a drain.
 - `sending`: claimed by one execution.
 - `accepted`: SMTP accepted the recipient/message; this does **not** prove inbox delivery.
 - `failed`: a definite rejection occurred. A protected `{ "action": "retry", "id": "<booking-id>:guest" }` can retry it while below the attempt limit.
 - `unknown`: the connection or execution ended with an ambiguous outcome. Expired sending claims also become unknown during the next drain. The app will not resend these automatically. Reconcile with the recipient/provider before any manual follow-up.
+- `suppressed`: a queued message became obsolete when the reservation status changed.
 
-SMTP and Redis cannot guarantee exactly-once inbox delivery. In particular, an execution may stop after SMTP accepts a message but before Redis records that fact. The app preserves the uncertain state rather than risk an automatic duplicate. Jobs expire with the booking record, 90 days after checkout. Booking records and availability are preserved regardless of SMTP configuration or outcome.
+SMTP and Redis cannot guarantee exactly-once inbox delivery. An execution may stop after SMTP accepts a message but before Redis records that fact. The app preserves that uncertain state. Email jobs and public requests expire 90 days after checkout. Manual reservation records remain available for historical tracking. Booking records and availability are preserved regardless of SMTP configuration or outcome.
 
 ## Business signature in Spacemail Webmail
 
-Booking acknowledgments, owner notifications, and the dashboard test append the standard HTML and plain-text signatures from `public/email-signature/`. The HTML includes the logo and the booking and WhatsApp QR codes. The website and the Spacemail copy tool use the same source files. Edits made in Spacemail Webmail apply to messages composed there.
+Booking acknowledgments, official confirmations, owner notifications, and the dashboard test append the standard HTML and plain-text signatures from `public/email-signature/`. The HTML keeps the logo and the booking and WhatsApp QR codes. Its main **Chat on WhatsApp** button sits above the outlined Facebook, Instagram, and website buttons. The website and the Spacemail copy tool use the same source files. Edits made in Spacemail Webmail apply to messages composed there.
 
 To apply the provided signature to `greetings@mooncrabsiargao.com`:
 
 1. Sign in to that mailbox at [Spacemail Webmail](https://www.spacemail.com/).
 2. Open **Settings → Signature → Manage signatures**.
 3. Choose **+ New signature**, give it a name, then press Enter.
-4. Open the delivered rendered signature HTML, select/copy its rendered table, and paste it into the signature editor. Do not paste raw HTML source into a visual editor. If the client strips an image, insert the supplied logo/QR image through its image tool and retain the accompanying text links.
+4. Open the [signature installer](https://mooncrabsiargao.com/email-signature/) and click **Copy signature**. Paste with the original formatting. If clipboard copying is unavailable, open the standalone preview and copy the visible signature. If the editor strips an image, use its image tool and retain the accompanying text links.
 5. Use the tick below the editor to select it as the default. Wait for the saved notification.
 6. Compose a test message to yourself and check image proportions, links, and QR codes on desktop and mobile. Separate email clients need their own signature configuration; signatures do not synchronize through IMAP.
 
