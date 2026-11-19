@@ -1,4 +1,4 @@
-import { randomUUID, timingSafeEqual } from 'node:crypto';
+import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
 import nodemailer from 'nodemailer';
 import { authorizeAdmin, sameOrigin } from './admin-auth.ts';
 import { configured, createRedisCommand, manilaDate, setHeaders, unavailable } from './availability.ts';
@@ -17,21 +17,31 @@ export const BOOKING_RECORD_PREFIX = 'mooncrab:request:';
 export const NOTIFICATION_SETTINGS_KEY = 'mooncrab:notification-settings';
 const NOTIFICATION_TEST_KEY = 'mooncrab:notification-test';
 const AUTOMATION_PREFERENCES_KEY = 'mooncrab:email-workflow-preferences';
-type NotificationSettings = { enabled: boolean; recipient: string };
+const MAX_RECIPIENTS = 10;
+type NotificationSettings = { enabled: boolean; recipients: string[] };
 
-function validNotificationSettings(value: unknown): value is NotificationSettings {
-  if (!value || typeof value !== 'object') return false;
-  const { enabled, recipient } = value as NotificationSettings;
-  return typeof enabled === 'boolean' && typeof recipient === 'string' && recipient.length <= 254
-    && (recipient === '' ? !enabled : /^[^\s@<>(),;:"\\]+@[a-z0-9-]+(?:\.[a-z0-9-]+)+$/i.test(recipient));
+function parseNotificationSettings(value: unknown): NotificationSettings | null {
+  if (!value || typeof value !== 'object') return null;
+  const { enabled, recipients, recipient } = value as Record<string, unknown>;
+  const addresses = recipients === undefined && typeof recipient === 'string' ? (recipient ? [recipient] : []) : recipients;
+  if (typeof enabled !== 'boolean' || !Array.isArray(addresses) || addresses.length > MAX_RECIPIENTS) return null;
+  const unique = new Map<string, string>();
+  for (const value of addresses) {
+    if (typeof value !== 'string') return null;
+    const address = value.trim();
+    if (address.length > 254 || !/^[^\s@<>(),;:"\\\x00-\x1f\x7f]+@[a-z0-9-]+(?:\.[a-z0-9-]+)+$/i.test(address)) return null;
+    const key = address.toLowerCase();
+    if (!unique.has(key)) unique.set(key, address);
+  }
+  return enabled && !unique.size ? null : { enabled, recipients: [...unique.values()] };
 }
 
 async function readNotificationSettings(command: RedisCommand): Promise<NotificationSettings> {
   const raw = await command(['GET', NOTIFICATION_SETTINGS_KEY]);
-  if (raw === null) return { enabled: false, recipient: '' };
-  const data: unknown = typeof raw === 'string' ? JSON.parse(raw) : null;
-  if (!validNotificationSettings(data)) throw new Error('Invalid notification settings');
-  return data;
+  if (raw === null) return { enabled: false, recipients: [] };
+  const settings = parseNotificationSettings(typeof raw === 'string' ? JSON.parse(raw) : null);
+  if (!settings) throw new Error('Invalid notification settings');
+  return settings;
 }
 
 const MAX_ATTEMPTS = 3;
@@ -218,6 +228,26 @@ function definiteFailure(error: unknown): boolean {
   return ['CONN', 'EHLO', 'HELO', 'STARTTLS', 'AUTH', 'MAIL FROM', 'RCPT TO'].includes(value.command || '') && value.code !== 'ETIMEDOUT';
 }
 
+type RecipientResult = { to: string; state: 'accepted' | 'failed' | 'unknown'; details?: string; messageId?: string };
+
+async function sendEmail(send: EmailSender, message: Parameters<EmailSender>[0]): Promise<RecipientResult> {
+  const { to } = message;
+  try {
+    const result = await send(message);
+    if (result.accepted.length && !result.rejected?.length) return { to, state: 'accepted', messageId: result.messageId };
+    return { to, state: 'failed', details: 'Spacemail did not accept this address. Check the address before retrying.' };
+  } catch (error) {
+    return definiteFailure(error)
+      ? { to, state: 'failed', details: 'SMTP rejected the attempt before acceptance. Check the connection or address before retrying.' }
+      : { to, state: 'unknown', details: 'The send outcome is uncertain. Check the mailbox before submitting another message.' };
+  }
+}
+
+function submissionState(results: RecipientResult[]): RecipientResult['state'] {
+  if (results.some(result => result.state === 'unknown')) return 'unknown';
+  return results.some(result => result.state === 'failed') ? 'failed' : 'accepted';
+}
+
 async function processJob(id: string, options: EmailOptions): Promise<EmailState | 'skipped'> {
   const env = options.env ?? process.env;
   if (!smtpReadiness(env).configured) return 'skipped';
@@ -232,30 +262,37 @@ async function processJob(id: string, options: EmailOptions): Promise<EmailState
   const raw = await command(['EVAL', CLAIM_EMAIL_SCRIPT, 4, `${EMAIL_JOB_PREFIX}${id}`, EMAIL_PENDING_KEY, `${BOOKING_RECORD_PREFIX}${id.split(':')[0]}`, AUTOMATION_PREFERENCES_KEY, id, started.getTime(), started.toISOString(), CLAIM_MILLISECONDS, token, MAX_ATTEMPTS]);
   if (raw === null) return 'skipped';
   const job = safeJob(raw);
-  const recipient = notification?.recipient ?? job.booking.email;
+  const accepted = new Set(notification ? job.history?.filter(item => item.state === 'accepted').map(item => item.to.toLowerCase()) : []);
+  const recipients = notification ? notification.recipients.filter(address => !accepted.has(address.toLowerCase())) : [job.booking.email];
   const message = bookingEmail(job.booking, job.kind, {
     ...EMAIL_CONTACTS, phone: settings.contacts.phone, whatsapp: settings.contacts.whatsappUrl,
     facebook: settings.contacts.facebookUrl, instagram: settings.contacts.instagramUrl,
     greetings: settings.contacts.email,
   });
-  try {
-    const result = await (options.send ?? smtpSender(env))({
-      from: `${isOwner ? 'Moon Crab Bookings' : 'Moon Crab Siargao'} <${EMAIL_CONTACTS.bookings}>`, to: recipient,
-      ...message, messageId: `<${job.id.replace(':', '.')}${job.delivery ? `.${job.delivery}` : ''}@mooncrabsiargao.com>`,
+  const send = options.send ?? smtpSender(env);
+  const results = await Promise.all(recipients.map(to => {
+    const addressId = isOwner ? `.${createHash('sha256').update(to.toLowerCase()).digest('hex').slice(0, 24)}` : '';
+    return sendEmail(send, {
+      from: `${isOwner ? 'Moon Crab Bookings' : 'Moon Crab Siargao'} <${EMAIL_CONTACTS.bookings}>`, to,
+      ...message, messageId: `<${job.id.replace(':', '.')}${job.delivery ? `.${job.delivery}` : ''}${addressId}@mooncrabsiargao.com>`,
     });
-    if (!result.accepted.length || result.rejected?.length) {
-      job.status = 'failed'; job.lastError = 'The SMTP server did not accept this recipient. Review the recipient and retry deliberately.';
-    } else {
-      job.status = 'accepted'; job.acceptedAt = now().toISOString(); job.messageId = result.messageId;
-      delete job.lastError;
-    }
-  } catch (error) {
-    job.status = definiteFailure(error) ? 'failed' : 'unknown';
-    job.lastError = job.status === 'failed' ? 'SMTP rejected the attempt before acceptance. Check configuration or recipient before retrying.' : 'The send outcome is uncertain. Check the mailbox before sending another message; this job will not retry automatically.';
+  }));
+  job.status = submissionState(results);
+  if (job.status === 'accepted') {
+    job.acceptedAt = results.length ? now().toISOString() : job.history?.findLast(item => item.state === 'accepted')?.finishedAt;
+    job.messageId = results[0]?.messageId ?? job.messageId;
+    delete job.lastError;
+  } else if (isOwner) {
+    const unresolved = results.filter(result => result.state !== 'accepted').length;
+    const addresses = `${unresolved} ${unresolved === 1 ? 'address' : 'addresses'}`;
+    job.lastError = job.status === 'unknown'
+      ? `Check the activity history for ${addresses} with unresolved outcomes before submitting another alert.`
+      : `Spacemail rejected ${addresses}. Check the activity history and retry after correcting the rejected recipients.`;
+  } else {
+    job.lastError = results[0].details;
   }
   job.updatedAt = now().toISOString();
-  job.history = [...(job.history ?? []), { at: started.toISOString(), finishedAt: job.updatedAt, state: job.status,
-    to: recipient, subject: message.subject, ...(job.lastError ? { details: job.lastError } : {}) }];
+  job.history = [...(job.history ?? []), ...results.map(({ to, state, details }) => ({ to, state, details, at: started.toISOString(), finishedAt: job.updatedAt, subject: message.subject }))];
   await command(['EVAL', FINISH_EMAIL_SCRIPT, 2, `${EMAIL_JOB_PREFIX}${id}`, EMAIL_PENDING_KEY, token, JSON.stringify(job)]);
   return job.status;
 }
@@ -277,10 +314,12 @@ export async function processReservationEmail(bookingId: string, kind: 'confirma
 
 function emailSummary(job: EmailJob) {
   const { id, bookingId, kind, status, attempts, createdAt, updatedAt, acceptedAt, lastError, attemptStartedAt, booking, delivery } = job;
+  const latest = job.history?.at(-1);
+  const recipients = latest ? job.history?.filter(item => item.at === latest.at).map(item => item.to).join(', ') : undefined;
   return { id, bookingId, kind, status, attempts, createdAt, updatedAt, acceptedAt, lastError,
     lastAttempt: attemptStartedAt ? new Date(attemptStartedAt).toISOString() : undefined,
     safeToRetry: status === 'failed' && attempts < MAX_ATTEMPTS,
-    recipient: job.history?.at(-1)?.to ?? (kind !== 'owner' ? booking.email : undefined), delivery: delivery ?? 0,
+    recipient: recipients ?? (kind !== 'owner' ? booking.email : undefined), delivery: delivery ?? 0,
     workflow: workflowOf(job), history: job.history ?? [],
   };
 }
@@ -385,7 +424,7 @@ export function createEmailOutboxHandler(options: EmailOptions = {}) {
         const batches = [];
         for (let index = 0; index < indexed.length; index += 50) batches.push(command(['MGET', ...indexed.slice(index,index+50).map(id => EMAIL_JOB_PREFIX + id)]));
         const jobs = (await Promise.all(batches)).flat().filter(value => value != null).map(value => emailSummary(safeJob(value)));
-        res.status(200).json({smtp:smtpReadiness(env), jobs, lastTest:typeof lastTest === 'string' ? JSON.parse(lastTest) : null,
+        res.status(200).json({smtp:smtpReadiness(env), jobs, ownerNotifications:settings, lastTest:typeof lastTest === 'string' ? JSON.parse(lastTest) : null,
           enabled:Object.fromEntries(Object.keys(EMAIL_WORKFLOWS).map(key => [key, key === 'owner' ? settings.enabled : !disabled.has(key)]))}); return;
       }
       if (req.query?.settings === '1') {
@@ -399,32 +438,27 @@ export function createEmailOutboxHandler(options: EmailOptions = {}) {
           }
           const body = req.body as { action?: unknown; settings?: unknown; workflow?: unknown } | undefined;
           if (body?.action === 'save') {
-            if (!validNotificationSettings(body.settings)) { res.status(400).json({ error: 'Enter a valid recipient email or disable notifications and clear the address.' }); return; }
-            settings = { enabled: body.settings.enabled, recipient: body.settings.recipient };
-            await command(['SET', NOTIFICATION_SETTINGS_KEY, JSON.stringify(settings)]);
+            const next = parseNotificationSettings(body.settings);
+            if (!next) { res.status(400).json({ error: `Enter up to ${MAX_RECIPIENTS} valid email addresses. Owner alerts require at least one address when enabled.` }); return; }
+            settings = next;
+            await command(['SET', NOTIFICATION_SETTINGS_KEY, JSON.stringify({ ...settings, recipient: settings.recipients[0] ?? '' })]);
           } else if (body?.action === 'test') {
-            if (!settings.recipient || !smtp.configured) { res.status(409).json({ error: smtp.reason || 'Save a recipient address first.' }); return; }
+            if (!settings.recipients.length || !smtp.configured) { res.status(409).json({ error: smtp.reason || 'Save a recipient address first.' }); return; }
             const claim = await command(['SET', 'mooncrab:notification-test-lock', '1', 'NX', 'EX', 60]);
             if (claim !== 'OK') { res.status(429).json({ error: 'Wait one minute before sending another test.' }); return; }
             const id = randomUUID();
-            let status = 'unknown';
-            try {
-              const preview = typeof body.workflow === 'string' && body.workflow !== 'test' ? await previewEmail({ ...req, query:{ preview:body.workflow } }, command) : null;
-              const message = preview ? { ...preview, subject:`[TEST] ${preview.subject}` } : notificationTestEmail();
-              const result = await (options.send ?? smtpSender(env))({
-                from: `Moon Crab Bookings <${EMAIL_CONTACTS.bookings}>`, to: settings.recipient,
-                ...message,
-                messageId: `<test.${id}@mooncrabsiargao.com>`,
-              });
-              status = result.accepted.length && !result.rejected?.length ? 'accepted' : 'failed';
-            } catch (error) {
-              if (definiteFailure(error)) status = 'failed';
-            }
-            await command(['SET', NOTIFICATION_TEST_KEY, JSON.stringify({ status, at: (options.now ?? (() => new Date()))().toISOString() })]);
+            const preview = typeof body.workflow === 'string' && body.workflow !== 'test' ? await previewEmail({ ...req, query:{ preview:body.workflow } }, command) : null;
+            const message = preview ? { ...preview, subject:`[TEST] ${preview.subject}` } : notificationTestEmail();
+            const send = options.send ?? smtpSender(env);
+            const results = await Promise.all(settings.recipients.map((to, index) => sendEmail(send, {
+              from: `Moon Crab Bookings <${EMAIL_CONTACTS.bookings}>`, to, ...message,
+              messageId: `<test.${id}.${index}@mooncrabsiargao.com>`,
+            })));
+            await command(['SET', NOTIFICATION_TEST_KEY, JSON.stringify({ status: submissionState(results), results, at: (options.now ?? (() => new Date()))().toISOString() })]);
           } else { res.status(400).json({ error: 'Choose save or test.' }); return; }
         }
         const lastTest = await command(['GET', NOTIFICATION_TEST_KEY]);
-        res.status(200).json({ ...settings, smtp, lastTest: typeof lastTest === 'string' ? JSON.parse(lastTest) : null }); return;
+        res.status(200).json({ ...settings, recipient: settings.recipients[0] ?? '', smtp, lastTest: typeof lastTest === 'string' ? JSON.parse(lastTest) : null }); return;
       }
       if (req.method === 'GET') {
         const lookup = req.query?.bookings;

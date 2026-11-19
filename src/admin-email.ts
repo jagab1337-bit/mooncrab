@@ -1,6 +1,7 @@
 import { EMAIL_WORKFLOWS, TOGGLEABLE_WORKFLOWS } from '../shared/email-workflows.ts';
 import type { EmailWorkflow } from '../shared/email-workflows.ts';
 import { escape, showError, type AdminFetch } from './admin-workspace.ts';
+import { mountNotificationEditor } from './admin-notifications.ts';
 
 export const emailEndpoint = '/api/admin/email-outbox';
 const dateLabel = (value?: string) => value ? new Date(value).toLocaleString('en-PH', { timeZone:'Asia/Manila' }) : '—';
@@ -32,9 +33,11 @@ export async function renderEmailAutomations(container: HTMLElement, request: Ad
     <label class="workspace-form">Search activity<input type="search" placeholder="Workflow, recipient, subject, or booking reference"></label>
     <div class="workspace-table-wrap" data-activity></div><div class="workspace-actions"><button type="button" data-previous>Previous</button><span data-page></span><button type="button" data-next>Next</button></div>`;
   const status = container.querySelector<HTMLElement>('[data-status]')!;
-  const search = container.querySelector<HTMLInputElement>('input')!;
+  const search = container.querySelector<HTMLInputElement>('input[type=search]')!;
   const previous = container.querySelector<HTMLButtonElement>('[data-previous]')!;
   const next = container.querySelector<HTMLButtonElement>('[data-next]')!;
+  const ownerEditor = document.createElement('div');
+  let editorMounted = false;
   let page = 0;
   let jobs: Communication[] = [];
   function activity() {
@@ -42,8 +45,8 @@ export async function renderEmailAutomations(container: HTMLElement, request: Ad
     const rows = jobs.flatMap(job => {
       const attempts = job.history ?? [];
       const records = attempts.map(attempt => ({...attempt, job, current:false}));
-      const last = records.at(-1);
-      if (last?.state === job.status && last.at === job.lastAttempt) last.current = true;
+      const last = records.findLast(record => record.state === job.status && record.at === job.lastAttempt);
+      if (last) last.current = true;
       else records.push({ at:job.lastAttempt ?? job.updatedAt, finishedAt:job.updatedAt, state:job.status, to:job.recipient ?? '', subject:'', details:job.lastError, job, current:true });
       return records;
     }).filter(row => [EMAIL_WORKFLOWS[row.job.workflow]?.name, row.to, row.subject, row.job.bookingId, row.state].join(' ').toLowerCase().includes(query))
@@ -65,11 +68,20 @@ export async function renderEmailAutomations(container: HTMLElement, request: Ad
     container.querySelector('[data-workflows]')!.innerHTML = Object.entries(EMAIL_WORKFLOWS).map(([key, workflow]) => {
       const latest = jobs.find(job=>job.workflow===key);
       const lastExecution = key === 'test' ? lastTest : latest && {at:latest.lastAttempt ?? latest.updatedAt,status:latest.status};
-      return `<section class="workspace-entry email-workflow"><h3>${workflow.name}</h3><p>${workflow.trigger} → ${workflow.recipient}</p><p class="owner-hint">bookings@mooncrabsiargao.com · ${enabled[key] ? 'Enabled' : 'Disabled'}</p>
+      return `<section class="workspace-entry email-workflow"><h3>${workflow.name}</h3><p>${workflow.trigger} → ${workflow.recipient}</p><p class="owner-hint">bookings@mooncrabsiargao.com · <span ${key === 'owner' ? 'data-owner-state' : ''}>${enabled[key] ? 'Enabled' : 'Disabled'}</span></p>
         <p>${lastExecution ? `${states[lastExecution.status] ?? escape(lastExecution.status)} · ${dateLabel(lastExecution.at)}` : 'No retained execution'}${latest ? ` · <a href="/admin#request-${encodeURIComponent(latest.bookingId)}">Open booking</a>` : ''}</p>
         <div class="workspace-actions"><button type="button" data-workflow="${key}" data-action="preview">Preview template</button><button type="button" data-workflow="${key}" data-action="test">Send test</button>
-        ${TOGGLEABLE_WORKFLOWS.some(value=>value===key) ? `<button type="button" data-workflow="${key}" data-action="toggle" data-enabled="${!enabled[key]}">${enabled[key] ? 'Disable' : 'Enable'}</button>` : key==='owner' ? '<a href="/admin/settings/notifications">Manage owner alerts</a>' : ''}</div></section>`;
+        ${TOGGLEABLE_WORKFLOWS.some(value=>value===key) ? `<button type="button" data-workflow="${key}" data-action="toggle" data-enabled="${!enabled[key]}">${enabled[key] ? 'Disable' : 'Enable'}</button>` : ''}</div>
+        ${key === 'owner' ? '<div data-owner-recipients></div>' : ''}</section>`;
     }).join('');
+    container.querySelector('[data-owner-recipients]')!.append(ownerEditor);
+    if (!editorMounted) {
+      const settings = (state.ownerNotifications ?? await request(emailEndpoint + '?settings=1')) as Record<string, unknown>;
+      mountNotificationEditor(ownerEditor, request, settings, {
+        onSave: active => { container.querySelector('[data-owner-state]')!.textContent = active ? 'Enabled' : 'Disabled'; },
+      });
+      editorMounted = true;
+    }
     activity();
   }
   search.oninput = () => { page=0; activity(); };
@@ -80,7 +92,7 @@ export async function renderEmailAutomations(container: HTMLElement, request: Ad
     if (!button) return;
     const { action, workflow, job: id } = button.dataset;
     const job = jobs.find(candidate=>candidate.id===id);
-    if (['retry','resend','test'].includes(action ?? '') && !confirm(action === 'test' ? 'Send a sample email to the saved notification recipient?' : 'Submit this booking email to its recorded recipient?')) return;
+    if (['retry','resend','test'].includes(action ?? '') && !confirm(action === 'test' ? 'Send a sample email to all saved owner alert recipients?' : job?.kind === 'owner' ? 'Retry the owner alert for saved addresses that still need it?' : 'Submit this booking email to its recorded recipient?')) return;
     button.disabled=true;
     try {
       if (action === 'preview') await previewBookingEmail(request, workflow as EmailWorkflow);

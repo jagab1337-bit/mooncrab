@@ -53,6 +53,8 @@
 .email-preview-dialog iframe { width:100%; height:min(600px,65vh); border:1px solid var(--line); background:var(--cream); }
 .email-preview-dialog h3 { margin:12px 0; }
 .email-workflow p { margin-block:5px; font-size:13px; }
+.email-workflow [data-owner-recipients] { padding-top:12px; border-top:1px solid var(--line); }
+.email-workflow [data-notification-status]:empty { display:none; }
 .workspace-error-text { display:block; margin-top:5px; }
 .owner-booking-mail button { margin:0 6px 6px 0; }
 .owner-booking-mail summary { cursor:pointer; }

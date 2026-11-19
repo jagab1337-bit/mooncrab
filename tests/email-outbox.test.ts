@@ -238,12 +238,45 @@ test('only definite failed messages can be retried by an authenticated owner', a
   assert.match(body.note, /not delivered/);
 });
 
-test('notification settings start empty and a test sends only to the saved recipient', async () => {
+test('owner retry sends only to currently registered addresses that still need the alert', async () => {
+  const memory = store();
+  const command: RedisCommand = args => args[0] === 'GET' && args[1] === NOTIFICATION_SETTINGS_KEY
+    ? Promise.resolve(JSON.stringify({ enabled: true, recipients: ['owner@example.com', 'desk@example.com'] }))
+    : memory.command(args);
+  await enqueueBookingEmails(record, { env, command, now: () => fixedNow });
+  const sent: Array<Parameters<EmailSender>[0]> = [];
+  let rejectDesk = true;
+  const send: EmailSender = async message => {
+    sent.push(message);
+    return message.to === 'desk@example.com' && rejectDesk
+      ? { accepted: [], rejected: [message.to] } : { accepted: [message.to], messageId: message.messageId };
+  };
+  const result = await processBookingEmails(id, { env, command, send, now: () => fixedNow });
+  assert.deepEqual(result, { guest: 'accepted', owner: 'failed' });
+  assert.deepEqual(sent.map(({ to }) => to), ['ana@example.com', 'owner@example.com', 'desk@example.com']);
+  assert.equal(new Set(sent.map(message => message.messageId)).size, 3);
+
+  rejectDesk = false;
+  const handler = createEmailOutboxHandler({ env, command, send, now: () => new Date(fixedNow.getTime() + 60_000) });
+  const retry = response();
+  await handler({ method: 'POST', headers: { authorization: 'Bearer test-owner-key', 'content-type': 'application/json' }, body: { action: 'retry', id: `${id}:owner` } }, retry);
+  assert.equal(retry.code, 200);
+  assert.deepEqual(sent.slice(3).map(({ to }) => to), ['desk@example.com']);
+  assert.equal(sent[3].messageId, sent[2].messageId);
+  const job = JSON.parse(memory.values.get(`${EMAIL_JOB_PREFIX}${id}:owner`)!) as EmailJob;
+  assert.equal(job.status, 'accepted');
+  assert.deepEqual(job.history?.map(({ to, state }) => [to, state]), [
+    ['owner@example.com', 'accepted'], ['desk@example.com', 'failed'], ['desk@example.com', 'accepted'],
+  ]);
+});
+
+test('notification settings preserve a legacy address and send tests only to the saved list', async () => {
   const values = new Map<string, string>();
   const messages: Array<Parameters<EmailSender>[0]> = [];
   const command: RedisCommand = async ([operation, key, value]) => {
     if (operation === 'GET') return values.get(String(key)) ?? null;
     if (operation === 'SET') { values.set(String(key), String(value)); return 'OK'; }
+    if (operation === 'HGETALL' || operation === 'ZREVRANGE') return [];
     throw new Error('Unexpected command');
   };
   const handler = createEmailOutboxHandler({
@@ -258,15 +291,24 @@ test('notification settings start empty and a test sends only to the saved recip
   const noRecipient = response();
   await handler({ method: 'POST', headers, query, body: { action: 'test' } }, noRecipient);
   assert.equal(noRecipient.code, 409);
+  values.set(NOTIFICATION_SETTINGS_KEY, JSON.stringify({ enabled: true, recipient: 'owner@example.com' }));
+  const legacy = response();
+  await handler({ method: 'GET', headers, query: { automations: '1' } }, legacy);
+  assert.deepEqual((legacy.body as { ownerNotifications: unknown }).ownerNotifications, { enabled: true, recipients: ['owner@example.com'] });
   const saved = response();
-  await handler({ method: 'POST', headers, query, body: { action: 'save', settings: { recipient: 'owner@example.com', enabled: true } } }, saved);
+  await handler({ method: 'POST', headers, query, body: { action: 'save', settings: { recipients: ['owner@example.com', ' desk@example.com ', 'OWNER@example.com'], enabled: true } } }, saved);
   assert.equal(saved.code, 200);
+  const recipients = ['owner@example.com', 'desk@example.com'];
+  assert.deepEqual((saved.body as { recipients: string[] }).recipients, recipients);
+  const invalid = response();
+  await handler({ method: 'POST', headers, query, body: { action: 'save', settings: { recipients: ['owner@example.com', 'invalid'], enabled: true } } }, invalid);
+  assert.equal(invalid.code, 400);
   assert.equal(messages.length, 0);
   const tested = response();
   await handler({ method: 'POST', headers, query, body: { action: 'test', to: 'other@example.com' } }, tested);
   assert.equal(tested.code, 200);
   assert.equal((tested.body as { lastTest: { status: string } }).lastTest.status, 'accepted');
-  assert.deepEqual(messages.map(message => message.to), ['owner@example.com']);
+  assert.deepEqual(messages.map(message => message.to), recipients);
   assert.equal(messages[0].from, 'Moon Crab Bookings <bookings@mooncrabsiargao.com>');
   assertPublishedSignature(messages[0]);
 });
