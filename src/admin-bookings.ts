@@ -7,7 +7,7 @@ const money = (cents: number) => formatPhp(cents / 100);
 
 export function paymentFields(payment?: BookingPayment, quote?: number): string {
   return `<div class="owner-settings-grid owner-booking-amounts">
-    <label>Agreed accommodation total (PHP)<input name="total" type="number" min="0.01" max="99999999.99" step="0.01" required value="${amount(payment?.totalCents ?? (quote === undefined ? null : Math.round(quote * 100)))}"></label>
+    <label>Agreed accommodation total (PHP)<input name="total" type="number" min="0" max="99999999.99" step="0.01" required value="${amount(payment?.totalCents ?? (quote === undefined ? null : Math.round(quote * 100)))}"></label>
     <label>Payment actually received (PHP)<input name="received" type="number" min="0" max="99999999.99" step="0.01" value="${amount(payment?.receivedCents)}" placeholder="Leave blank if unrecorded"></label>
   </div><dl class="owner-payment-summary" data-payment-summary></dl>`;
 }
@@ -86,6 +86,7 @@ export function bindManualBooking(form: HTMLFormElement, save: (payload: Record<
     if (sendEmail && (!fields.get('email') || !policyAccepted)) {
       showError('Enter the guest email and record their policy agreement before confirming with email.'); return;
     }
+    if (sendEmail && !window.confirm(`Confirm this reservation and email ${fields.get('email')}?`)) return;
     const saved = await save({ ...Object.fromEntries(fields), guests: Number(fields.get('guests')), payment: amounts, sendEmail, policyAccepted,
       policyVersion: DIRECT_POLICY.version, status: sendEmail ? 'confirmed' : fields.get('status'), idempotencyKey: id });
     if (saved) { form.reset(); id = crypto.randomUUID(); updateSource(); }

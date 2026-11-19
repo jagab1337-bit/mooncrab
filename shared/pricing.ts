@@ -1,4 +1,5 @@
 /** Package rates apply only to complete seven-/thirty-night blocks. */
+import type { CouponApplied } from './coupons.ts';
 export interface PricingConfig {
   nightlyPhp: number;
   weeklyPhp: number;
@@ -32,6 +33,10 @@ export interface PricingSnapshot {
   extraGuestFeePhp: number;
   totalPhp: number;
   depositPhp: number;
+  coupons?: CouponApplied[];
+  manualDiscountCents?: number;
+  originalTotalPhp?: number;
+  discountPhp?: number;
   rates: PricingConfig;
   calculatedAt: string;
 }

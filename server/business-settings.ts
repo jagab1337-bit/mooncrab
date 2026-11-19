@@ -5,6 +5,7 @@ import { configured, createRedisCommand, isValidDate, monthRange, setHeaders, un
 import type { ApiRequest, ApiResponse, HandlerOptions, RedisCommand } from './availability.ts';
 import { authorizeAdmin } from './admin-auth.ts';
 import { MANUAL_SOURCES } from '../shared/booking-terms.ts';
+import { allowCouponQuote, quoteCoupons, requestCodes } from './coupons.ts';
 
 export const SETTINGS_KEY = 'mooncrab:business-settings';
 export interface BusinessContacts {
@@ -69,14 +70,22 @@ export function createQuoteHandler(options: HandlerOptions = {}) {
   const env=options.env??process.env, command=options.command??createRedisCommand(env), now=options.now??(()=>new Date());
   return async(req:ApiRequest,res:ApiResponse)=>{
     setHeaders(res);
-    if(req.method!=='GET'){res.setHeader('Allow','GET');res.status(405).json({error:'Method not allowed.'});return;}
-    const {checkIn,checkOut,guests,room}=req.query??{};
-    const range=monthRange(now());
+    if(req.method!=='GET'&&req.method!=='POST'){res.setHeader('Allow','GET, POST');res.status(405).json({error:'Method not allowed.'});return;}
+    const input = req.method==='POST' ? req.body as Record<string,unknown> | undefined : req.query;
+    const {checkIn,checkOut,guests,room}=input??{};
+    const at=now();
+    const range=monthRange(at);
     if(!isValidDate(checkIn)||!isValidDate(checkOut)||checkIn<range.today||checkOut>range.lastDate||room!=='KASAG'||typeof guests!=='string'||! /^[1-3]$/.test(guests)){res.status(400).json({error:'Choose KASAG, valid stay dates, and 1–3 guests.'});return;}
     if(!configured(env)){unavailable(res);return;}
     try{
       const settings=await readBusinessSettings(command);
-      let pricing;try{pricing=calculatePricing(nightsBetween(checkIn,checkOut),Number(guests),settings.pricing,now().toISOString());}catch{res.status(400).json({error:`Choose a stay of ${settings.pricing.minimumNights}–${settings.pricing.maxNights} nights.`});return;}
+      let pricing;try{pricing=calculatePricing(nightsBetween(checkIn,checkOut),Number(guests),settings.pricing,at.toISOString());}catch{res.status(400).json({error:`Choose a stay of ${settings.pricing.minimumNights}–${settings.pricing.maxNights} nights.`});return;}
+      if (req.method==='POST') {
+        if (!await allowCouponQuote(command,req)) {res.status(429).json({error:'Too many promo checks. Try again later.'});return;}
+        const email = typeof input?.email==='string' ? input.email.trim().slice(0,254) : '';
+        try {pricing=(await quoteCoupons(command,pricing,requestCodes(input?.codes),checkIn,email,at)).pricing;}
+        catch (error) {res.status(400).json({error:error instanceof Error ? error.message : 'This promo code is unavailable.'});return;}
+      }
       res.status(200).json({pricing});
     }catch{unavailable(res);}
   };

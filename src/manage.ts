@@ -2,14 +2,20 @@ import './manage.css';
 import './admin-workspace.css';
 import { showError } from './admin-workspace.ts';
 import { bindManualBooking, bindPayment, manualBookingFields, paymentFields } from './admin-bookings.ts';
-import { DIRECT_POLICY, externalSource } from '../shared/booking-terms.ts';
+import { centsFromInput, DIRECT_POLICY, externalSource } from '../shared/booking-terms.ts';
 import type { BookingAgreement, BookingPayment } from '../shared/booking-terms.ts';
+import type { Communication } from './admin-email.ts';
+import type { PricingSnapshot } from '../shared/pricing.ts';
+import { formatPhp } from '../shared/pricing.ts';
 
 const workspacePages = {
   '/admin/finance': { label: 'Finance Tracker', load: async () => (await import('./admin-finance.ts')).renderFinance },
   '/admin/vault': { label: 'Logins &amp; Notes', load: async () => (await import('./admin-vault.ts')).renderVault },
   '/admin/projects': { label: 'Project Management', load: async () => (await import('./admin-projects.ts')).renderProjects },
   '/admin/settings/notifications': { label: 'Notification Settings', load: async () => (await import('./admin-notifications.ts')).renderNotifications },
+  '/admin/email-automations': { label: 'Email Automations', load: async () => (await import('./admin-email.ts')).renderEmailAutomations },
+  '/admin/coupons': { label: 'Coupons &amp; Promotions', load: async () => (await import('./admin-coupons.ts')).renderCoupons },
+  '/admin/analytics': { label: 'Web Analytics', load: async () => (await import('./admin-analytics.ts')).renderAnalytics },
 };
 type NotificationJob = { id: string; bookingId: string; kind: string; status: string; lastAttempt?: string; acceptedAt?: string; recipient?: string; delivery?: number; safeToRetry: boolean; lastError?: string };
 
@@ -17,7 +23,7 @@ type NotificationJob = { id: string; bookingId: string; kind: string; status: st
 type DateSource = '' | 'airbnb' | 'booking' | 'direct';
 type DateDetail = { source:DateSource; notes:string };
 type CalendarResponse = { blockedDates: string[]; manualDates?: string[]; confirmedDates?: string[]; importedDates?: string[]; dateDetails?:Record<string,DateDetail>; dateSources?:Record<string,Exclude<DateSource,''>[]>; initialized: boolean; error?: string };
-type BookingRequest = { id: string; checkIn: string; checkOut: string; name: string; email: string; phone?: string; whatsapp?: boolean; room?: string; pricing?: { totalPhp?: number; nights?: number }; message: string; guests?: number; extraGuestFeePhp?: number; status: 'pending' | 'confirmed' | 'declined' | 'cancelled'; createdAt: string; updatedAt: string; manual?: boolean; source?: string; agreement?: BookingAgreement; payment?: BookingPayment };
+type BookingRequest = { id: string; checkIn: string; checkOut: string; name: string; email: string; phone?: string; whatsapp?: boolean; room?: string; pricing?: PricingSnapshot; message: string; guests?: number; extraGuestFeePhp?: number; status: 'pending' | 'confirmed' | 'declined' | 'cancelled'; createdAt: string; updatedAt: string; manual?: boolean; source?: string; agreement?: BookingAgreement; payment?: BookingPayment; priceAudit?: Array<{at:string;reason:string;previous:PricingSnapshot;adjusted:PricingSnapshot}>; archivedAt?:string };
 
 /** Owner-only calendar. Credentials stay in this function's memory. */
 export async function renderManage(container: HTMLElement): Promise<void> {
@@ -25,6 +31,7 @@ export async function renderManage(container: HTMLElement): Promise<void> {
   const activePage = () => workspacePages[route() as keyof typeof workspacePages];
   let notifications = new Map<string, NotificationJob>();
   const confirmations = new Map<string, NotificationJob>();
+  const communications = new Map<string, Communication[]>();
   const robots = document.createElement('meta');
   robots.name = 'robots';
   robots.content = 'noindex, nofollow';
@@ -50,6 +57,9 @@ export async function renderManage(container: HTMLElement): Promise<void> {
   let requestsBusy = false;
   let requestsLoadingAt = -1;
   let bookingRequests: BookingRequest[] = [];
+  let requestOffset=0, requestTotal=0, requestSize=25;
+  let pendingCount=0, upcomingCount=0;
+  let pendingRanges:string[][]=[];
   let savedDates = new Set<string>();
   let confirmedDates = new Set<string>();
   let importedDates = new Set<string>();
@@ -134,8 +144,13 @@ export async function renderManage(container: HTMLElement): Promise<void> {
         <div class="owner-requests-heading"><h2 id="owner-requests-title">Stay requests</h2><button id="owner-refresh-requests" type="button">Refresh requests</button></div>
         <p class="owner-instructions">Pending requests leave dates open. Agree the accommodation total and record any payment you’ve verified. Confirming blocks the dates and queues an official email for website reservations.</p>
         <details class="owner-manual-booking"><summary>Add manual reservation</summary><form id="owner-manual-booking">${manualBookingFields}</form></details>
+        <form id="owner-request-filters" class="workspace-form owner-booking-review"><label>View<select name="view"><option value="active">Active</option><option value="archived">Archived</option><option value="all">All Requests</option></select></label><label>Search stay requests<input name="search" type="search" placeholder="Name, reference, email, phone or room"></label>
+        <label>Booking status<select name="status"><option value="">All statuses</option><option>pending</option><option>confirmed</option><option>declined</option><option>cancelled</option></select></label><label>Reservation channel<input name="source" placeholder="Exact source, e.g. Website"></label>
+        <label>Stay from<input name="start" type="date"></label><label>Stay through<input name="end" type="date"></label><label>Archived on<input name="archived" type="date"></label><label>Requests per page<select name="size"><option>10</option><option selected>25</option><option>50</option></select></label><button type="submit">Apply filters</button></form>
+        <div class="workspace-actions"><button type="button" id="owner-archive-selected" disabled>Archive selected</button><button type="button" id="owner-restore-selected" disabled>Restore selected</button></div>
         <p id="owner-requests-status" class="owner-status" role="status" aria-live="polite"></p>
         <div id="owner-requests-list"></div>
+        <div class="workspace-actions"><button type="button" id="owner-requests-prev">Previous</button><span id="owner-requests-page"></span><button type="button" id="owner-requests-next">Next</button></div>
       </section>
       <section id="owner-settings-area" class="owner-card owner-settings" hidden><h2>Rates & business settings</h2><p class="owner-hint">KASAG is the only room. Rate changes apply to new quotes; existing requests retain their original estimate.</p><form id="owner-settings-form"><div class="owner-settings-grid"><label>Nightly rate · PHP<input name="nightlyPhp" type="number" min="1" step="1" required></label><label>Weekly package · PHP<input name="weeklyPhp" type="number" min="1" step="1" required></label><label>30-night package · PHP<input name="monthlyPhp" type="number" min="1" step="1" required></label><label>Minimum nights<input name="minimumNights" type="number" min="2" max="90" step="1" required></label><label>Maximum nights<input name="maxNights" type="number" min="2" max="90" step="1" required></label></div><div class="owner-check-options"><label><input name="weeklyEnabled" type="checkbox"> Enable 7-night packages</label><label><input name="monthlyEnabled" type="checkbox"> Enable 30-night packages</label></div><div class="owner-settings-grid"><label>Business phone<input name="phone" type="tel" required></label><label>WhatsApp link<input name="whatsappUrl" type="url" required></label><label>Facebook URL<input name="facebookUrl" type="url" required></label><label>Instagram URL<input name="instagramUrl" type="url" required></label><label>Business email<input name="email" type="email" required></label><label>Booking sender alias<input name="bookingEmail" type="email" required></label></div><label class="owner-manual-notes">Additional booking sources <small>One per line</small><textarea name="bookingSources" rows="3" maxlength="1220"></textarea></label><p class="owner-hint">Changing an email address here does not authorize its sending alias in Spacemail. Provider configuration is still required.</p><button class="owner-primary" type="submit">Save rates & settings</button><p id="owner-settings-status" class="owner-status" role="status"></p></form><button id="owner-show-password" type="button" class="owner-text-button">Change administrator password</button></section>
       <section id="owner-integrations-area" class="owner-card owner-settings" hidden><h2>Calendar & email connections</h2><p class="owner-hint">External calendars update periodically and may be delayed. Feed URLs and email credentials stay on the server.</p><div class="owner-integration-actions"><button id="owner-sync-calendars" type="button">Refresh external calendars</button><button id="owner-drain-email" type="button">Process queued emails</button><button id="owner-refresh-integrations" type="button">Refresh connection status</button></div><p id="owner-integrations-status" class="owner-status" role="status"></p><div id="owner-calendar-connections"></div><div id="owner-email-connections"></div></section>
@@ -164,6 +179,11 @@ export async function renderManage(container: HTMLElement): Promise<void> {
   const settingsArea = query<HTMLElement>('#owner-settings-area');
   const settingsForm = query<HTMLFormElement>('#owner-settings-form');
   const manualForm = query<HTMLFormElement>('#owner-manual-booking');
+  const requestFilters=query<HTMLFormElement>('#owner-request-filters');
+  const requestPrev=query<HTMLButtonElement>('#owner-requests-prev'),requestNext=query<HTMLButtonElement>('#owner-requests-next');
+  const bulkArchive=query<HTMLButtonElement>('#owner-archive-selected'),bulkRestore=query<HTMLButtonElement>('#owner-restore-selected');
+  const selectedArchives=new Set<string>();
+  let followRequestLink=true;
   const sourceSettings = settingsForm.elements.namedItem('bookingSources') as HTMLTextAreaElement;
   const setManualSources = bindManualBooking(manualForm, saveManual, message => { requestsStatus.textContent = message; });
   const integrationsArea = query<HTMLElement>('#owner-integrations-area');
@@ -423,6 +443,7 @@ export async function renderManage(container: HTMLElement): Promise<void> {
     workspace.replaceChildren();
     notifications.clear();
     confirmations.clear();
+    communications.clear();
     additions.clear();
     removals.clear();
     savedDates.clear();
@@ -439,6 +460,7 @@ export async function renderManage(container: HTMLElement): Promise<void> {
     query<HTMLElement>('#owner-date-state').textContent = '';
     query<HTMLElement>('#owner-date-protection').textContent = '';
     bookingRequests = [];
+    pendingRanges=[];pendingCount=0;upcomingCount=0;requestFilters.reset();requestOffset=0;
     manualForm.reset();
     manualForm.closest('details')!.open = false;
     requestsList.replaceChildren();
@@ -496,6 +518,14 @@ export async function renderManage(container: HTMLElement): Promise<void> {
   }
 
   function requestBookings(method: 'GET' | 'PATCH' | 'POST', body?: unknown) {
+    if (method==='GET') {
+      const filters=new URLSearchParams(new FormData(requestFilters) as unknown as Record<string,string>);
+      const id=location.hash.startsWith('#request-')?location.hash.slice(9):'';
+      if (followRequestLink&&id) filters.set('id',id);
+      filters.set('offset',String(requestOffset));
+      requestSize=Number(filters.get('size')||25);
+      return adminFetch('/api/admin/booking-requests?'+filters.toString());
+    }
     return adminFetch('/api/admin/booking-requests', method, body);
   }
 
@@ -530,26 +560,46 @@ export async function renderManage(container: HTMLElement): Promise<void> {
   const emailStatus: Record<string, string> = { queued: 'Queued for Spacemail', sending: 'Submitting', accepted: 'Accepted by Spacemail', failed: 'Submission failed', unknown: 'Outcome uncertain', suppressed: 'Suppressed' };
   function drawConfirmation(card: HTMLElement, booking: BookingRequest): void {
     card.querySelector('[data-booking-confirmation]')?.remove();
-    const job = confirmations.get(booking.id);
-    if (!job && booking.status !== 'confirmed') return;
+    const related = communications.get(booking.id) ?? [];
+    const declined = booking.status === 'declined' && !booking.manual;
+    const job = declined ? related.find(entry => entry.kind === 'decline') : confirmations.get(booking.id);
+    if (!job && !declined && booking.status !== 'confirmed' && !related.length) return;
     const row = document.createElement('div');
     row.dataset.bookingConfirmation = '';
     row.className = 'owner-booking-mail';
     const status = document.createElement('p');
-    status.textContent = `Confirmation email · ${job ? emailStatus[job.status] ?? job.status : 'No retained submission'}`;
+    const kind = declined ? 'decline' : 'confirmation';
+    const label = declined ? 'Decline' : 'Confirmation';
+    status.textContent = `${label} email · ${job ? emailStatus[job.status] ?? job.status : 'No retained submission'}`;
     row.append(status);
+    const eligible = declined || (booking.status === 'confirmed' && booking.payment && booking.checkOut > today && !externalSource(booking.source) && (!booking.manual || booking.agreement?.version===DIRECT_POLICY.version));
+    if (eligible && booking.email) {
+      const preview = document.createElement('button'); preview.type='button'; preview.textContent='Preview Booking Email';
+      preview.onclick = () => { void import('./admin-email.ts').then(({previewBookingEmail})=>previewBookingEmail(adminFetch, declined ? 'decline' : booking.manual ? 'manual' : 'confirmation', booking.id)).catch(error=>showError(status,error)); };
+      row.append(preview);
+      if (!job || job.status === 'suppressed') {
+        const send = document.createElement('button'); send.type='button'; send.textContent=`Send Booking ${declined ? 'Decline Email' : 'Confirmation'}`;
+        send.onclick=async()=>{
+          if (!window.confirm(`Send this ${kind} to ${booking.email}?`)) return;
+          send.disabled=true;
+          try { await adminFetch('/api/admin/email-outbox','POST',{action:'send-booking',id:`${booking.id}:${kind}`}); await loadRequestNotifications(); }
+          catch(error){showError(status,error);send.disabled=false;}
+        };
+        row.append(send);
+      }
+    }
     if (job) {
       const history = document.createElement('p');
       history.textContent = `To ${job.recipient ?? booking.email} · ${job.lastAttempt ? `Last attempt ${emailTime(job.lastAttempt)}` : 'No attempt recorded'}${job.acceptedAt ? ` · Accepted ${emailTime(job.acceptedAt)}` : ''}`;
       row.append(history);
       if (job.lastError) { const error = document.createElement('p'); error.textContent = job.lastError; row.append(error); }
-      if (booking.status === 'confirmed' && (job.safeToRetry || job.status === 'accepted' || job.status === 'queued')) {
+      if (eligible && (job.safeToRetry || job.status === 'accepted' || (job.status === 'queued' && !declined))) {
         const resend = job.status === 'accepted';
         const queued = job.status === 'queued';
         const button = document.createElement('button');
-        button.type = 'button'; button.textContent = resend ? 'Resend Confirmation' : queued ? 'Submit Queued Confirmation' : 'Retry Confirmation';
+        button.type = 'button'; button.textContent = resend ? `Resend ${label}${declined ? ' Email' : ''}` : queued ? 'Submit Queued Confirmation' : `Retry ${label}`;
         button.onclick = async () => {
-          if (resend && !window.confirm(`Send another confirmation to ${booking.email}?`)) return;
+          if (!window.confirm(`Submit this ${kind} to ${booking.email}?`)) return;
           button.disabled = true;
           try {
             const result = await adminFetch('/api/admin/email-outbox', 'POST', { action: resend ? 'resend' : queued ? 'submit-confirmation' : 'retry', id: job.id, delivery: job.delivery });
@@ -560,11 +610,26 @@ export async function renderManage(container: HTMLElement): Promise<void> {
         row.append(button);
       }
     }
+    if (related.length) {
+      const history = document.createElement('details');
+      const heading = document.createElement('summary'); heading.textContent = 'View Communication History'; history.append(heading);
+      for (const item of related) {
+        const title = document.createElement('p'); title.textContent = `${item.kind} · ${emailStatus[item.status] ?? item.status}`; history.append(title);
+        for (const attempt of item.history ?? []) {
+          const text = document.createElement('p'); text.textContent = `${emailTime(attempt.at)} · ${emailStatus[attempt.state] ?? attempt.state} · ${attempt.to} · ${attempt.subject}${attempt.details ? ` · ${attempt.details}` : ''}`;
+          history.append(text);
+        }
+      }
+      row.append(history);
+    }
     card.append(row);
   }
 
   function drawRequests(): void {
     requestsList.replaceChildren();
+    selectedArchives.clear(); updateArchiveButtons();
+    requestPrev.disabled=requestOffset===0;requestNext.disabled=requestOffset+requestSize>=requestTotal;
+    query('#owner-requests-page').textContent=requestTotal?`${requestOffset+1}–${Math.min(requestOffset+requestSize,requestTotal)} of ${requestTotal}`:'No matches';
     drawOverview();
     if (bookingRequests.length === 0) {
       const empty = document.createElement('p');
@@ -606,12 +671,30 @@ export async function renderManage(container: HTMLElement): Promise<void> {
       id.className = 'owner-request-id';
       id.textContent = `Reference ${booking.id}`;
       card.append(heading, dates, occupancy, email, message, id);
+      const archiveActions=document.createElement('div'); archiveActions.className='workspace-actions';
+      const selection=document.createElement('label'); const checked=document.createElement('input'); checked.type='checkbox';
+      selection.append(checked,' Select'); checked.onchange=()=>{if(checked.checked)selectedArchives.add(booking.id);else selectedArchives.delete(booking.id);updateArchiveButtons();};
+      const archive=document.createElement('button');archive.type='button';archive.textContent=booking.archivedAt?'Restore Request':'Archive Request';
+      archive.onclick=()=>{void changeArchives([booking.id],booking.archivedAt?'restore':'archive');};
+      archiveActions.append(selection,archive);
+      if (booking.archivedAt) {const at=document.createElement('small');at.textContent=`Archived ${emailTime(booking.archivedAt)}`;archiveActions.append(at);}
+      card.append(archiveActions);
       const detail = document.createElement('p');
       detail.className = 'owner-request-detail';
       const nights = Math.round((Date.parse(booking.checkOut) - Date.parse(booking.checkIn)) / 86400000);
       const submitted = Number.isFinite(Date.parse(booking.createdAt)) ? new Intl.DateTimeFormat('en', { timeZone: 'Asia/Manila', dateStyle: 'medium', timeStyle: 'short' }).format(new Date(booking.createdAt)) : 'time unavailable';
       detail.textContent = `${booking.room || 'KASAG'} · ${nights} nights · Submitted ${submitted}${booking.pricing?.totalPhp !== undefined ? ` · Estimated PHP ${booking.pricing.totalPhp.toLocaleString('en-PH')}` : ''}`;
       card.append(detail);
+      if (booking.pricing?.discountPhp) {
+        const promo = document.createElement('p'); promo.className='owner-hint';
+        promo.textContent=`Original quote ${formatPhp(booking.pricing.originalTotalPhp!)} · ${booking.pricing.coupons?.map(c=>c.code).join(', ')??'Agreed discount'} saves ${formatPhp(booking.pricing.discountPhp)} · New total ${formatPhp(booking.pricing.totalPhp)}.`;
+        card.append(promo);
+      }
+      if (booking.priceAudit?.length) {
+        const audit = document.createElement('details'); const label=document.createElement('summary');label.textContent='Quote changes';audit.append(label);
+        for (const change of booking.priceAudit) {const line=document.createElement('p');line.textContent=`${emailTime(change.at)} · ${formatPhp(change.previous.totalPhp)} → ${formatPhp(change.adjusted.totalPhp)} · ${change.reason}`;audit.append(line);}
+        card.append(audit);
+      }
       const policy = document.createElement('p'); policy.className = 'owner-hint';
       policy.textContent = `${booking.source ?? 'Website'} · ${externalSource(booking.source) ? 'Booking platform policy applies.' : booking.agreement?.version === DIRECT_POLICY.version
         ? `Policy ${booking.agreement.version}, ${booking.agreement.recordedBy === 'guest' ? 'accepted by guest' : 'recorded by host'} ${emailTime(booking.agreement.acceptedAt)}. ${DIRECT_POLICY.deposit} ${DIRECT_POLICY.cancellation}`
@@ -622,6 +705,20 @@ export async function renderManage(container: HTMLElement): Promise<void> {
         const phone = document.createElement('a'); phone.href = `tel:${booking.phone}`; phone.className = 'owner-request-email'; phone.textContent = `${booking.phone}${booking.whatsapp ? ' · WhatsApp available' : ''}`; card.append(phone);
       }
       if (booking.status === 'pending') {
+        if (booking.pricing && !booking.manual) {
+          const edit = document.createElement('details'); edit.className='owner-booking-review';
+          edit.innerHTML='<summary>Adjust promotional quote</summary><form class="workspace-form"><label>Promo codes (comma separated)<input name="codes" maxlength="75"></label><label>Additional discount (PHP)<input name="discount" type="number" min="0" step="0.01"></label><label class="workspace-full">Reason for the change<input name="reason" maxlength="400" required></label><button type="submit">Save adjusted quote</button></form>';
+          const priceForm=edit.querySelector('form')!;
+          (priceForm.elements.namedItem('codes') as HTMLInputElement).value=booking.pricing.coupons?.map(c=>c.code).join(', ')??'';
+          (priceForm.elements.namedItem('discount') as HTMLInputElement).value=String((booking.pricing.manualDiscountCents??0)/100);
+          priceForm.onsubmit=event=>{
+            event.preventDefault();
+            if (!window.confirm('Save these quote changes? Agree the updated price with the guest before confirming.')) return;
+            const data=new FormData(priceForm);
+            void actOnRequest(booking.id,'adjust-price',{couponCodes:String(data.get('codes')).split(',').map(value=>value.trim()).filter(Boolean),manualDiscountCents:centsFromInput(String(data.get('discount')||0)),reason:data.get('reason'),expectedUpdatedAt:booking.updatedAt});
+          };
+          card.append(edit);
+        }
         const review = document.createElement('form');
         review.className = 'owner-booking-review';
         review.innerHTML = paymentFields(booking.payment, booking.pricing?.totalPhp);
@@ -659,7 +756,20 @@ export async function renderManage(container: HTMLElement): Promise<void> {
           const payment = amounts.read();
           if (agreed.checked && payment) void actOnRequest(booking.id, 'confirm', { payment, sendEmail: sendEmail.checked });
         };
-        decline.addEventListener('click', () => { void actOnRequest(booking.id, 'decline'); });
+        decline.addEventListener('click', () => {
+          const dialog = document.createElement('dialog');
+          dialog.className='owner-card workspace-panel'; dialog.setAttribute('aria-label','Decline booking');
+          dialog.innerHTML='<form class="workspace-form"><h3 class="workspace-full">Decline booking</h3><p class="workspace-full" data-stay></p><label class="workspace-full">Guest-facing reason (optional)<textarea name="reason" rows="3" maxlength="600"></textarea></label><div class="workspace-actions workspace-full"><button type="button" data-close>Go back</button><button type="submit" class="owner-primary">Confirm decline</button></div></form>';
+          dialog.querySelector('[data-stay]')!.textContent = `${booking.name} · ${describe(booking.checkIn)} to ${describe(booking.checkOut)}. ${booking.manual ? 'Saved without a guest email.' : 'The decline email will be queued for the guest.'}`;
+          dialog.querySelector<HTMLButtonElement>('[data-close]')!.onclick=()=>dialog.close();
+          const declineForm = dialog.querySelector('form')!;
+          declineForm.onsubmit=event=>{
+            event.preventDefault(); const reason = new FormData(declineForm).get('reason');
+            dialog.close(); void actOnRequest(booking.id,'decline',{reason});
+          };
+          dialog.addEventListener('close',()=>dialog.remove(),{once:true});
+          document.body.append(dialog); dialog.showModal();
+        });
         actions.append(confirm, decline);
         review.append(agreement, actions);
         card.append(review);
@@ -714,6 +824,9 @@ export async function renderManage(container: HTMLElement): Promise<void> {
         if (job.kind === 'owner') notifications.set(job.bookingId, job);
         if (job.kind === 'confirmation') confirmations.set(job.bookingId, job);
       }
+      for (const id of new Set((result.value.jobs as Communication[]).map(job=>job.bookingId))) {
+        communications.set(id,(result.value.jobs as Communication[]).filter(job=>job.bookingId===id));
+      }
     }
     for (const card of requestsList.querySelectorAll<HTMLElement>('.owner-request')) {
       const booking = bookingRequests.find(row => row.id === card.dataset.request);
@@ -742,7 +855,11 @@ export async function renderManage(container: HTMLElement): Promise<void> {
       });
       if (!valid) throw new Error('Stay requests returned an unexpected response. Please try again.');
       bookingRequests = result.requests as BookingRequest[];
-      requestsStatus.textContent = `${bookingRequests.filter((booking) => booking.status === 'pending').length} pending requests`;
+      requestTotal=typeof result.total==='number'?result.total:bookingRequests.length;
+      pendingCount=typeof result.pending==='number'?result.pending:bookingRequests.filter(booking=>booking.status==='pending').length;
+      upcomingCount=typeof result.upcoming==='number'?result.upcoming:bookingRequests.filter(booking=>booking.status==='confirmed'&&booking.checkOut>today).length;
+      pendingRanges=Array.isArray(result.pendingRanges)?result.pendingRanges as string[][]:bookingRequests.filter(booking=>booking.status==='pending').map(booking=>[booking.checkIn,booking.checkOut]);
+      requestsStatus.textContent = `${pendingCount} active pending requests`;
     } catch (error) {
       if (authenticated && sessionCheck === generation) requestsStatus.textContent = error instanceof Error ? error.message : 'Stay requests could not be loaded. Try again.';
     } finally {
@@ -757,6 +874,24 @@ export async function renderManage(container: HTMLElement): Promise<void> {
       }
     }
   }
+
+  function updateArchiveButtons(){
+    bulkArchive.disabled=!bookingRequests.some(booking=>selectedArchives.has(booking.id)&&!booking.archivedAt);
+    bulkRestore.disabled=!bookingRequests.some(booking=>selectedArchives.has(booking.id)&&booking.archivedAt);
+  }
+  async function changeArchives(ids:string[],action:'archive'|'restore') {
+    if (!ids.length||requestsBusy||!window.confirm(`${action==='archive'?'Archive':'Restore'} ${ids.length===1?'this request':`${ids.length} requests`}? Reservation dates, status, and emails stay as saved.`)) return;
+    requestsBusy=true;
+    try {await requestBookings('POST',{ids,action});followRequestLink=false;requestOffset=0;}
+    catch(error){showError(requestsStatus,error);return;}
+    finally{requestsBusy=false;}
+    await loadRequests();
+  }
+  requestFilters.onsubmit=event=>{event.preventDefault();followRequestLink=false;requestOffset=0;void loadRequests();};
+  requestPrev.onclick=()=>{requestOffset=Math.max(0,requestOffset-requestSize);void loadRequests();};
+  requestNext.onclick=()=>{requestOffset+=requestSize;void loadRequests();};
+  bulkArchive.onclick=()=>{void changeArchives(bookingRequests.filter(booking=>selectedArchives.has(booking.id)&&!booking.archivedAt).map(booking=>booking.id),'archive');};
+  bulkRestore.onclick=()=>{void changeArchives(bookingRequests.filter(booking=>selectedArchives.has(booking.id)&&booking.archivedAt).map(booking=>booking.id),'restore');};
 
   async function saveBookingChange(method: 'POST' | 'PATCH', payload: Record<string, unknown>, start: string, finish: (result: Record<string, unknown>) => string): Promise<boolean> {
     if (!authenticated || requestsBusy || busy) return false;
@@ -773,8 +908,18 @@ export async function renderManage(container: HTMLElement): Promise<void> {
       const booking = result.request as BookingRequest | undefined;
       if (!booking?.id) throw new Error('Refresh bookings to verify the saved reservation.');
       const position = bookingRequests.findIndex(row => row.id === booking.id);
+      const previous=bookingRequests[position];
+      if (previous?.status==='pending'&&!previous.archivedAt) {
+        pendingCount--;
+        const range=pendingRanges.findIndex(([arrival,departure])=>arrival===previous.checkIn&&departure===previous.checkOut);
+        if(range>=0)pendingRanges.splice(range,1);
+      }
+      if (booking.status==='pending'&&!previous?.archivedAt) {pendingCount++;pendingRanges.push([booking.checkIn,booking.checkOut]);}
+      if (previous?.status==='confirmed'&&previous.checkOut>today)upcomingCount--;
+      if (booking.status==='confirmed'&&booking.checkOut>today)upcomingCount++;
       if (position < 0) bookingRequests.unshift(booking);
-      else bookingRequests[position] = booking;
+      else bookingRequests[position] = { ...booking, archivedAt:previous.archivedAt };
+      requestTotal=Math.max(requestTotal,bookingRequests.length);
       saved = true;
       requestsStatus.textContent = finish(result);
       try {
@@ -802,11 +947,12 @@ export async function renderManage(container: HTMLElement): Promise<void> {
     return saveBookingChange('POST', payload, 'Saving reservation…', result => `Reservation saved as ${(result.request as BookingRequest).status}.${confirmationResult(result)}`);
   }
 
-  async function actOnRequest(id: string, action: 'confirm' | 'decline' | 'cancel' | 'payment', extra: Record<string, unknown> = {}): Promise<void> {
+  async function actOnRequest(id: string, action: 'confirm' | 'decline' | 'cancel' | 'payment' | 'adjust-price', extra: Record<string, unknown> = {}): Promise<void> {
     await saveBookingChange('PATCH', { id, action, ...extra }, 'Updating reservation…', result => {
       if (action === 'confirm') return `Stay confirmed and dates blocked.${confirmationResult(result)}`;
       if (action === 'cancel') return 'Stay cancelled. Any dates still blocked by a calendar or manual block remain unavailable.';
-      return action === 'payment' ? 'Payment details saved.' : 'Request declined. Contact the guest to let them know.';
+      if (action === 'adjust-price') return 'Adjusted quote saved. Review the new total with the guest before confirming.';
+      return action === 'payment' ? 'Payment details saved.' : `Request declined.${result.declineEmail ? ` ${emailStatus[String(result.declineEmail)] ?? 'Check email status in the booking.'}.` : ''}`;
     });
   }
 
@@ -851,7 +997,7 @@ export async function renderManage(container: HTMLElement): Promise<void> {
       const blocked = isBlocked(key);
       const confirmed = confirmedDates.has(key);
       const imported = importedDates.has(key);
-      const pending = bookingRequests.some(booking => booking.status === 'pending' && booking.checkIn <= key && booking.checkOut > key);
+      const pending = pendingRanges.some(([arrival,departure])=>arrival<=key&&departure>key);
       const edited = additions.has(key) || removals.has(key) || pendingDetails.has(key);
       const detail = currentDetail(key);
       const sources = detail.source ? [detail.source] : detectedSources(key);
@@ -922,8 +1068,8 @@ export async function renderManage(container: HTMLElement): Promise<void> {
     const overview = query<HTMLElement>('#owner-overview');
     overview.replaceChildren();
     const values = [
-      [bookingRequests.filter(booking => booking.status === 'pending').length, 'Pending requests'],
-      [bookingRequests.filter(booking => booking.status === 'confirmed' && booking.checkOut > today).length, 'Upcoming stays'],
+      [pendingCount, 'Pending requests'],
+      [upcomingCount, 'Upcoming stays'],
       [[...savedDates].filter(date => date >= today).length, 'Manual blocked nights'],
       [[...importedDates].filter(date => date >= today).length, 'Imported nights'],
     ];

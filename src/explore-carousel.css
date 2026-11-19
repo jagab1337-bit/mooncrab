@@ -8,9 +8,9 @@
 .island-carousel-photo>a { display:block; height:100%; overflow:hidden; }
 .island-carousel-photo img { display:block; width:100%; height:100%; object-fit:cover; transition:transform .7s ease; }
 .island-carousel-photo figcaption { position:absolute; bottom:12px; left:14px; max-width:calc(100% - 28px); background:#f7eee3ed; padding:5px 8px; border-radius:2px; }
-.island-carousel-photo .explore-credit { font-size:9px; color:#5b4c42; }
+.island-carousel-photo .explore-credit { font-size:9px; color:var(--muted); }
 .island-carousel-copy { padding:38px 42px; display:flex; flex-direction:column; align-items:flex-start; justify-content:center; min-width:0; }
-.island-carousel-copy .eyebrow { color:#637769; font-size:10px; letter-spacing:1.8px; margin-bottom:19px; }
+.island-carousel-copy .eyebrow { color:var(--sage-ink); font-size:10px; letter-spacing:1.8px; margin-bottom:19px; }
 .island-carousel-copy h3 { font-size:clamp(34px,3.7vw,49px); line-height:1.04; letter-spacing:-1px; }
 .island-carousel-copy>p:not(.eyebrow) { color:var(--muted); font-size:14px; line-height:1.85; margin-top:20px; max-width:60ch; }
 .island-carousel-copy .text-link { margin-top:26px; font-size:12px; }

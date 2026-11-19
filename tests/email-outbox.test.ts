@@ -58,14 +58,15 @@ function store() {
     if (!raw) return null;
     const job = JSON.parse(raw) as EmailJob;
     if (script === CLAIM_EMAIL_SCRIPT) {
+      const offset = Number(args[2]) + 3;
       if (job.status === 'sending') {
-        if (Number(job.attemptStartedAt) + Number(args[9]) < Number(args[7])) {
+        if (Number(job.attemptStartedAt) + Number(args[offset+3]) < Number(args[offset+1])) {
           job.status = 'unknown'; delete job.claimToken; values.set(key, JSON.stringify(job)); index(second).delete(job.id);
         }
         return null;
       }
-      if (job.status !== 'queued' || job.attempts >= Number(args[11])) return null;
-      job.status = 'sending'; job.attempts++; job.claimToken = String(args[10]); job.attemptStartedAt = Number(args[7]);
+      if (job.status !== 'queued' || job.attempts >= Number(args[offset+5])) return null;
+      job.status = 'sending'; job.attempts++; job.claimToken = String(args[offset+4]); job.attemptStartedAt = Number(args[offset+1]);
       values.set(key, JSON.stringify(job)); return JSON.stringify(job);
     }
     if (script === FINISH_EMAIL_SCRIPT) {

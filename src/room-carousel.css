@@ -1,14 +1,14 @@
 .room-section { padding-block:64px; background:var(--cocoa); color:var(--cream); }
 .room-section .section-top { align-items:center; margin-bottom:34px; }
 .room-section .section-top h2 { font-size:clamp(52px,5.6vw,82px); }
-.room-section .section-top h2 em { color:#cad3c4; }
+.room-section .section-top h2 em { color:var(--surface-sage); }
 .room-section .section-top .eyebrow { color:#e2c77f; }
 .room-section .section-top>p { color:#e1d2c3; font-size:15px; }
 .room-section .room-grid { display:grid; grid-template-columns:minmax(0,1.2fr) minmax(0,1fr); align-items:start; gap:clamp(24px,2.4vw,48px); }
 .room-section .room-copy { min-width:0; color:var(--cocoa); background:var(--paper); padding:clamp(26px,3vw,48px); border-top:4px solid var(--ochre); border-radius:3px; }
 .room-section .room-lead { font-size:clamp(34px,2.8vw,44px); }
 .room-section .room-copy>p:not(.room-lead) { font-size:14px; }
-.room-section .occupancy-note { background:#eeeadf; border-left:3px solid var(--sage); padding:13px 16px; }
+.room-section .occupancy-note { background:var(--surface-muted); border-left:3px solid var(--sage); padding:13px 16px; }
 .room-section .published-rates>div { padding:13px 10px; background:var(--cream); }
 .room-section .room-copy>.text-link { display:flex; justify-content:space-between; padding:14px 18px; background:var(--cocoa); color:var(--cream); border:1px solid var(--cocoa); border-radius:3px; }
 .room-carousel { min-width:0; }
@@ -21,7 +21,7 @@
 .room-carousel-slide figcaption .eyebrow { font-size:10px; margin-bottom:8px; color:#cfbda9; }
 .room-carousel-slide h3 { font-size:clamp(29px,2.7vw,41px); line-height:1.08; letter-spacing:-.5px; }
 .room-carousel-navigation { display:flex; justify-content:space-between; align-items:center; gap:20px; padding-block:19px 16px; }
-.room-carousel-status { display:flex; gap:18px; align-items:center; font-size:11px; color:#ddcebd; }
+.room-carousel-status { display:flex; gap:18px; align-items:center; font-size:11px; color:var(--surface-muted); }
 .room-carousel-status [data-room-count] { flex-shrink:0; font:13px var(--mono); letter-spacing:2px; color:var(--cream); }
 .room-carousel-status>span:nth-child(2) { border-left:1px solid #b7b09e66; padding-left:18px; }
 .room-carousel-status [data-room-title] { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }

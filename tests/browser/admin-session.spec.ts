@@ -29,7 +29,7 @@ async function editableCalendar(page: Page, initial: { manualDates?: string[]; c
     imported.forEach(date => { dateSources[date] = ['airbnb']; });
     await route.fulfill({ json: { initialized: true, manualDates: [...manual], confirmedDates: confirmed, importedDates: imported, blockedDates: [...new Set([...manual, ...confirmed, ...imported])], dateDetails: details, dateSources } });
   });
-  await page.route('**/api/admin/booking-requests', route => route.fulfill({ json: { requests: [] } }));
+  await page.route('**/api/admin/booking-requests*', route => route.fulfill({ json: { requests: [] } }));
   await page.route('**/api/admin/settings', route => route.fulfill({ json: DEFAULT_CONFIG }));
   await page.route('**/api/admin/calendar-sync', route => route.fulfill({ json: { sources: [] } }));
   await page.route('**/api/admin/email-outbox', route => route.fulfill({ json: { config: { configured: false }, counts: {}, jobs: [] } }));
@@ -83,7 +83,7 @@ test('administrator changes the bootstrap password, protects reservations, block
     if (route.request().method() === 'PATCH') added = route.request().postDataJSON().add;
     await route.fulfill({ json: { initialized: true, manualDates: added, confirmedDates: [date(6)], importedDates: [date(7)], blockedDates: [...added, date(6), date(7)] } });
   });
-  await page.route('**/api/admin/booking-requests', route => route.fulfill({ json: { requests: [] } }));
+  await page.route('**/api/admin/booking-requests*', route => route.fulfill({ json: { requests: [] } }));
   await page.route('**/api/admin/settings', async route => {
     if (route.request().method() === 'PATCH') savedSettings = route.request().postDataJSON();
     await route.fulfill({ json: { room: 'KASAG', pricing: { nightlyPhp: 1300, weeklyPhp: 8000, monthlyPhp: 30000, minimumNights: 2, maxNights: 90, weeklyEnabled: true, monthlyEnabled: true }, contacts: { phone: '+639625284264', whatsappUrl: 'https://wa.me/639625284264', facebookUrl: 'https://www.facebook.com/share/1CsWCrqdR8/', instagramUrl: 'https://www.instagram.com/mooncrabsiargao/', email: 'greetings@mooncrabsiargao.com', bookingEmail: 'bookings@mooncrabsiargao.com', notificationEmail: 'greetings@mooncrabsiargao.com' } } });

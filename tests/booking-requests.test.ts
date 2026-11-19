@@ -281,9 +281,9 @@ test('owner confirmation submits an atomic action for the correct occupied night
   assert.equal(res.code, 200);
   assert.deepEqual(res.body, { request: confirmed, confirmationEmail: 'queued' });
   assert.equal(commands[1][0], 'EVAL');
-  assert.equal(commands[1][14], 'confirm');
-  assert.deepEqual(JSON.parse(String(commands[1][15])), ['2026-11-20', '2026-11-21']);
-  const job = JSON.parse(String(commands[1][19]));
+  assert.equal(commands[1][18], 'confirm');
+  assert.deepEqual(JSON.parse(String(commands[1][19])), ['2026-11-20', '2026-11-21']);
+  const job = JSON.parse(String(commands[1][23]));
   assert.equal(job.id, `${id}:confirmation`);
   assert.deepEqual(job.booking.payment, payment);
 });
@@ -333,6 +333,6 @@ test('owner can atomically cancel a confirmed stay without changing request expi
   await handler(adminRequest({ method: 'PATCH', body: { id, action: 'cancel' } }), res);
   assert.equal(res.code, 200);
   assert.deepEqual(res.body, { request: cancelled });
-  assert.equal(commands[1][14], 'cancel');
-  assert.equal(commands[1][17], requestExpiry(record.checkOut));
+  assert.equal(commands[1][18], 'cancel');
+  assert.equal(commands[1][21], requestExpiry(record.checkOut));
 });

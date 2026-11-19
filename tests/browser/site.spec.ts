@@ -112,7 +112,7 @@ test('owner must verify existing reservations before publishing; key is not pers
     if (route.request().method() === 'PATCH') { saved = route.request().postDataJSON(); initialized = saved.initialize === true; blockedDates = [...blockedDates, ...(saved.add as string[])]; }
     await route.fulfill({ json: { initialized, blockedDates } });
   });
-  await page.route('**/api/admin/booking-requests', route => route.fulfill({ json: { requests: [] } }));
+  await page.route('**/api/admin/booking-requests*', route => route.fulfill({ json: { requests: [] } }));
   await page.route('**/api/admin/session', route => route.fulfill({ json: { authenticated: false } }));
   await page.route('**/api/admin/settings', route => route.fulfill({ json: { pricing: {}, contacts: {} } }));
   await page.route('**/api/admin/calendar-sync', route => route.fulfill({ json: { sources: [] } }));
@@ -146,7 +146,7 @@ test('owner cancellation requires guest agreement and sends the intended action'
   let current = 'confirmed';
   const booking = () => ({ id: 'c9dc880a-c70d-4a90-bcd2-b509728bd0f5', checkIn: date(10), checkOut: date(12), name: '<script>guest</script>', email: 'guest@example.com', message: '<img src=x onerror=alert(1)>', status: current });
   await page.route('**/api/admin/availability', route => route.fulfill({ json: { initialized: true, blockedDates: current === 'confirmed' ? [date(10), date(11)] : [] } }));
-  await page.route('**/api/admin/booking-requests', async route => {
+  await page.route('**/api/admin/booking-requests*', async route => {
     if (route.request().method() === 'PATCH') { action = route.request().postDataJSON(); current = 'cancelled'; await route.fulfill({ json: { request: booking() } }); }
     else await route.fulfill({ json: { requests: [booking()] } });
   });
@@ -175,7 +175,7 @@ test('owner can confirm the agreed total without recording payment as received',
   let current = 'pending';
   const booking = () => ({ id: 'c9dc880a-c70d-4a90-bcd2-b509728bd0f5', checkIn: date(10), checkOut: date(12), name: 'Three Guests', email: 'guest@example.com', message: '', guests: 3, extraGuestFeePhp: 1000, status: current });
   await page.route('**/api/admin/availability', route => route.fulfill({ json: { initialized: true, blockedDates: current === 'confirmed' ? [date(10), date(11)] : [] } }));
-  await page.route('**/api/admin/booking-requests', async route => {
+  await page.route('**/api/admin/booking-requests*', async route => {
     if (route.request().method() === 'PATCH') { action = route.request().postDataJSON(); current = 'confirmed'; await route.fulfill({ json: { request: booking() } }); }
     else await route.fulfill({ json: { requests: [booking()] } });
   });
@@ -208,7 +208,7 @@ test('manual platform and direct reservations offer different email actions', as
   await page.route('**/api/admin/settings', route => route.fulfill({ json: { pricing: {}, contacts: {}, bookingSources: ['Partner referral'] } }));
   await page.route('**/api/admin/calendar-sync', route => route.fulfill({ json: { sources: [] } }));
   await page.route('**/api/admin/email-outbox**', route => route.fulfill({ json: { jobs: [] } }));
-  await page.route('**/api/admin/booking-requests', route => {
+  await page.route('**/api/admin/booking-requests*', route => {
     if (route.request().method() === 'GET') return route.fulfill({ json: { requests: [] } });
     const data = route.request().postDataJSON();
     payloads.push(data);
@@ -240,6 +240,7 @@ test('manual platform and direct reservations offer different email actions', as
   await manual.getByLabel('Guest email').fill('test@example.com');
   await manual.getByLabel('Payment actually received (PHP)').fill('1500');
   await manual.getByRole('checkbox', {name:/Guest agreed to the 50%/}).check();
+  page.once('dialog', dialog=>dialog.accept());
   await send.click();
   await expect(page.locator('#owner-requests-status')).toContainText('Accepted by Spacemail');
   expect(payloads[1]).toMatchObject({ source:'Partner referral', sendEmail:true, status:'confirmed', policyAccepted:true, payment:{ totalCents:800000, receivedCents:150000 } });

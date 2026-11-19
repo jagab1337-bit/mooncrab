@@ -31,7 +31,7 @@ export function centsFromInput(value: string): number {
 export function validPayment(value: unknown): value is BookingPayment {
   if (!value || typeof value !== 'object') return false;
   const { totalCents, receivedCents } = value as BookingPayment;
-  return Number.isSafeInteger(totalCents) && totalCents > 0 && totalCents < 10_000_000_000
+  return Number.isSafeInteger(totalCents) && totalCents >= 0 && totalCents < 10_000_000_000
     && (receivedCents === null || (Number.isSafeInteger(receivedCents) && receivedCents >= 0 && receivedCents < 10_000_000_000));
 }
 

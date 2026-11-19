@@ -2,6 +2,8 @@ import { getCountries, getCountryCallingCode, parsePhoneNumberFromString, type C
 import { calculatePricing, formatPhp, type PricingSnapshot } from '../shared/pricing.ts';
 import { CHANNELS, CONTACTS, externalArrow, DEFAULT_CONFIG, escapeHtml, getPublicConfig, type PublicConfig } from './business.ts';
 import './booking-ui.css';
+import { normalizeCodes } from '../shared/coupons.ts';
+import { tr, translatePage } from './appearance.ts';
 
 export function phoneFields(): string {
   const names = new Intl.DisplayNames(['en'], { type: 'region' });
@@ -18,11 +20,19 @@ export function createBookingUi(form: HTMLFormElement, onConfig: () => void) {
   let quoteGeneration = 0;
   let lastSelection = '';
   let popupDismissed = false;
+  let codes: string[] = [];
+  let promoPending = false;
+  let promoGeneration = 0;
   const calendarIntro = document.querySelector('.calendar-intro')!;
   calendarIntro.insertAdjacentHTML('beforeend', '<label class="room-selection" for="room-selection">Your room<select name="room" id="room-selection" form="booking-form"><option value="KASAG">KASAG · Private room · 1–3 guests</option></select></label>');
   form.insertAdjacentHTML('beforeend','<div class="estimate-persistent" aria-live="polite"></div>');
   const persistent = form.querySelector<HTMLElement>('.estimate-persistent')!;
   form.querySelector('.booking-policy')!.before(persistent);
+  persistent.insertAdjacentHTML('beforebegin','<div class="promo-entry"><label for="stay-promo" data-i18n="promo">Have a promo code?</label><div><input id="stay-promo" maxlength="24" autocomplete="off" spellcheck="false" placeholder="Promo code"><button type="button" class="button button-small" data-promo-apply data-i18n="apply">Apply</button></div><div class="promo-applied" data-promo-codes></div><p role="status" data-promo-status></p></div>');
+  const promo = form.querySelector<HTMLInputElement>('#stay-promo')!;
+  const promoStatus = form.querySelector<HTMLElement>('[data-promo-status]')!;
+  const apply = form.querySelector<HTMLButtonElement>('[data-promo-apply]')!;
+  const promoCodes = form.querySelector<HTMLElement>('[data-promo-codes]')!;
   const summary = document.querySelector('.date-summary')!;
   summary.insertAdjacentHTML('afterend','<aside class="estimate-popup" aria-label="Your estimated stay price" hidden><button type="button" aria-label="Dismiss price summary">×</button><div class="estimate-content" aria-live="polite"></div></aside>');
   const popup = document.querySelector<HTMLElement>('.estimate-popup')!;
@@ -36,15 +46,54 @@ export function createBookingUi(form: HTMLFormElement, onConfig: () => void) {
     if (!parsed?.isValid()) {phone.setCustomValidity('Enter a valid phone number for the selected country.');phone.reportValidity();return null;}
     phone.setCustomValidity('');return parsed.number;
   }
-  const breakdown = (pricing: PricingSnapshot) => `<p class="eyebrow">YOUR MOON CRAB STAY</p><p class="estimate-dates">KASAG · ${lastSelection.split('|').slice(0,2).map(escapeHtml).join(' → ')}</p><div class="estimate-lines">${pricing.lineItems.map(line=>`<p><span>${line.quantity} × ${escapeHtml(line.label)}</span><strong>${formatPhp(line.amountPhp)}</strong></p>`).join('')}</div><p class="estimate-total"><span>Estimated total · ${pricing.nights} nights</span><strong>${formatPhp(pricing.totalPhp)}</strong></p><p class="estimate-deposit">Required 50% deposit (non-refundable): <b>${formatPhp(pricing.depositPhp)}</b></p><p class="estimate-deposit">Balance after deposit: <b>${formatPhp(pricing.totalPhp - pricing.depositPhp)}</b></p><small>Final reservation subject to availability confirmation.</small>`;
+  const breakdown = (pricing: PricingSnapshot) => `<p class="eyebrow">YOUR MOON CRAB STAY</p><p class="estimate-dates">KASAG · ${lastSelection.split('|').slice(0,2).map(escapeHtml).join(' → ')}</p><div class="estimate-lines">${pricing.lineItems.map(line=>`<p><span>${line.quantity} × ${escapeHtml(line.label)}</span><strong>${formatPhp(line.amountPhp)}</strong></p>`).join('')}${(pricing.coupons??[]).map(coupon=>`<p><span>${tr('discount')} · ${escapeHtml(coupon.code)}</span><strong>−${formatPhp(coupon.discountCents/100)}</strong></p>`).join('')}</div><p class="estimate-total"><span>${tr('total')} · ${pricing.nights} nights</span><strong>${formatPhp(pricing.totalPhp)}</strong></p><p class="estimate-deposit">Required 50% deposit (non-refundable): <b>${formatPhp(pricing.depositPhp)}</b></p><p class="estimate-deposit">Balance after deposit: <b>${formatPhp((Math.round(pricing.totalPhp*100)-Math.round(pricing.depositPhp*100))/100)}</b></p><small>Final reservation subject to availability confirmation.</small>`;
+  let shown: PricingSnapshot | undefined;
   function displayPrice(pricing: PricingSnapshot) {
+    shown=pricing;
     persistent.innerHTML=breakdown(pricing);
     popup.querySelector('.estimate-content')!.innerHTML=breakdown(pricing);
+    translatePage();
   }
+  function drawCodes() {
+    promoCodes.replaceChildren(...codes.map(code=>{
+      const button = document.createElement('button'); button.type='button'; button.textContent=`${tr('remove')} ${code}`;
+      button.onclick=()=> { void validatePromo(codes.filter(value=>value!==code)); };
+      return button;
+    }));
+  }
+  document.addEventListener('mooncrab-language-change',()=>{drawCodes();if(lastSelection&&shown)displayPrice(shown);});
+  async function validatePromo(next: string[], reselect = false) {
+    if (!lastSelection) {promoStatus.textContent='Choose dates before applying a promo code.';return;}
+    const stamp = ++promoGeneration;
+    const [checkIn,checkOut,guests] = lastSelection.split('|');
+    promoPending = true; apply.disabled = true; onConfig();
+    promoStatus.textContent = next.length ? 'Checking the promo…' : '';
+    try {
+      const response = await fetch('/api/quote',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({room:'KASAG',checkIn,checkOut,guests,codes:next,email:new FormData(form).get('email')}),signal:AbortSignal.timeout(10000)});
+      const data = await response.json();
+      if (stamp!==promoGeneration) return;
+      if (!response.ok || !data.pricing) throw new Error(data.error || 'The promo is unavailable.');
+      ++quoteGeneration;
+      codes=next; drawCodes(); displayPrice(data.pricing); promo.value='';
+      promoStatus.textContent = next.length ? tr('applied') : 'Promo code removed.';
+    } catch (error) {
+      if (stamp!==promoGeneration) return;
+      if (reselect) {codes=[];drawCodes();}
+      promoStatus.textContent=tr('invalid')+(error instanceof Error ? ` · ${error.message}` : '');
+    } finally {
+      if (stamp===promoGeneration) {promoPending=false;apply.disabled=false;onConfig();}
+    }
+  }
+  apply.onclick=()=>{
+    const next=normalizeCodes([...codes,promo.value]);
+    if (!next) {promoStatus.textContent='Enter a valid, unused promo code. Up to three codes may be combined when eligible.';return;}
+    void validatePromo(next);
+  };
+  promo.onkeydown=event=>{if (event.key==='Enter') {event.preventDefault();apply.click();}};
   function update(checkIn:string,checkOut:string,guests:number): boolean {
     const nights = checkIn&&checkOut?(Date.parse(checkOut)-Date.parse(checkIn))/86400000:0;
     if (!ready) {persistent.textContent=configFailed?'Current room rates could not load. Please refresh the page or contact greetings@mooncrabsiargao.com.':'Loading current room rates…';popup.hidden=true;return false;}
-    if (!checkIn||!checkOut||nights<config.pricing.minimumNights||nights>config.pricing.maxNights) {quoteGeneration++;lastSelection='';persistent.textContent=checkIn&&!checkOut?'Choose your check-out date to see your estimated total.':`Choose a stay of ${config.pricing.minimumNights}–${config.pricing.maxNights} nights to see your estimated total.`;popup.hidden=true;return false;}
+    if (!checkIn||!checkOut||nights<config.pricing.minimumNights||nights>config.pricing.maxNights) {quoteGeneration++;promoGeneration++;promoPending=false;apply.disabled=false;lastSelection='';persistent.textContent=checkIn&&!checkOut?'Choose your check-out date to see your estimated total.':`Choose a stay of ${config.pricing.minimumNights}–${config.pricing.maxNights} nights to see your estimated total.`;popup.hidden=true;return false;}
     const key=[checkIn,checkOut,guests].join('|');
     if(key!==lastSelection){
       lastSelection=key;popupDismissed=false;
@@ -52,8 +101,9 @@ export function createBookingUi(form: HTMLFormElement, onConfig: () => void) {
       const generation=++quoteGeneration;
       const query=new URLSearchParams({room:'KASAG',checkIn,checkOut,guests:String(guests)});
       void fetch(`/api/quote?${query}`,{signal:AbortSignal.timeout(10000)}).then(async response=>{if(!response.ok)throw Error();const data=await response.json();if(generation===quoteGeneration&&data.pricing&&Number.isFinite(data.pricing.totalPhp)){config.pricing=data.pricing.rates;displayPrice(data.pricing);}}).catch(()=>{if(generation===quoteGeneration)persistent.querySelector('small')!.textContent='This estimate uses the latest loaded rates. Your host will confirm the total.';});
+      if (codes.length) void validatePromo(codes,true);
     }
-    popup.hidden=popupDismissed;return true;
+    popup.hidden=popupDismissed;return !promoPending;
   }
   function showSuccess(data:{id:string;room:string;checkIn:string;checkOut:string;guests:number;pricing:PricingSnapshot},name:string): void {
     const first = name.trim().split(/\s+/)[0] || 'there';
@@ -62,7 +112,7 @@ export function createBookingUi(form: HTMLFormElement, onConfig: () => void) {
     const message=`Hi Moon Crab! I’m ${first}. My KASAG request is ${data.checkIn} to ${data.checkOut}, ${data.pricing.nights} nights, estimated ${formatPhp(data.pricing.totalPhp)}. Reference ${data.id}.`;
     const whatsapp=new URL(contacts.whatsappUrl);if(whatsapp.hostname==='wa.me'&&!whatsapp.pathname.startsWith('/qr/'))whatsapp.searchParams.set('text',message);
     dialog.setAttribute('aria-labelledby','request-dialog-title');
-    dialog.innerHTML=`<button class="request-dialog-close" type="button" aria-label="Close booking request summary" autofocus>×</button><p class="eyebrow">MOON CRAB SIARGAO</p><h2 id="request-dialog-title">Thank you for reaching out, <em>${escapeHtml(first)}!</em></h2><p>We’ve received your booking request. To finish your booking, please chat with us on WhatsApp. We’ll confirm availability and the next steps together.</p><div class="request-dialog-summary"><p>KASAG · ${escapeHtml(data.checkIn)} → ${escapeHtml(data.checkOut)}</p><p>${data.pricing.nights} nights · ${data.guests} guests</p><strong>Estimated total: ${formatPhp(data.pricing.totalPhp)}</strong></div><p class="request-dialog-pending">Your reservation is not yet confirmed. A 50% non-refundable deposit is required after we agree your total.</p><a class="button" href="${escapeHtml(whatsapp.href)}" target="_blank" rel="noopener noreferrer">Chat With Us on WhatsApp ${externalArrow}</a><small>${escapeHtml(contacts.phone)}</small><p class="request-dialog-secondary">Or reach us through:</p><div class="request-dialog-social"><a href="${escapeHtml(contacts.facebookUrl)}" target="_blank" rel="noopener noreferrer">Facebook page ${externalArrow}</a><a href="${escapeHtml(contacts.instagramUrl)}" target="_blank" rel="noopener noreferrer">Instagram ${externalArrow}</a></div><p class="request-dialog-reference">Request reference: ${escapeHtml(data.id)}</p>`;
+    dialog.innerHTML=`<button class="request-dialog-close" type="button" aria-label="Close booking request summary" autofocus>×</button><p class="eyebrow">MOON CRAB SIARGAO</p><h2 id="request-dialog-title">Thank you for reaching out, <em>${escapeHtml(first)}!</em></h2><p>We’ve received your booking request. To finish your booking, please chat with us on WhatsApp. We’ll confirm availability and the next steps together.</p><div class="request-dialog-summary"><p>KASAG · ${escapeHtml(data.checkIn)} → ${escapeHtml(data.checkOut)}</p><p>${data.pricing.nights} nights · ${data.guests} guests</p>${data.pricing.discountPhp ? `<p>${tr('discount')} · −${formatPhp(data.pricing.discountPhp)}</p>` : ''}<strong>${tr('total')}: ${formatPhp(data.pricing.totalPhp)}</strong></div><p class="request-dialog-pending">Your reservation is not yet confirmed. A 50% non-refundable deposit is required after we agree your total.</p><a class="button" href="${escapeHtml(whatsapp.href)}" target="_blank" rel="noopener noreferrer">Chat With Us on WhatsApp ${externalArrow}</a><small>${escapeHtml(contacts.phone)}</small><p class="request-dialog-secondary">Or reach us through:</p><div class="request-dialog-social"><a href="${escapeHtml(contacts.facebookUrl)}" target="_blank" rel="noopener noreferrer">Facebook page ${externalArrow}</a><a href="${escapeHtml(contacts.instagramUrl)}" target="_blank" rel="noopener noreferrer">Instagram ${externalArrow}</a></div><p class="request-dialog-reference">Request reference: ${escapeHtml(data.id)}</p>`;
     const opener=document.activeElement as HTMLElement|null;
     document.body.append(dialog);dialog.showModal();
     document.documentElement.classList.add('request-dialog-open');
@@ -70,5 +120,5 @@ export function createBookingUi(form: HTMLFormElement, onConfig: () => void) {
     dialog.addEventListener('close',()=>{document.documentElement.classList.remove('request-dialog-open');dialog.remove();opener?.focus();});
   }
   getPublicConfig().then(value=>{config=value;ready=true;document.querySelectorAll<HTMLElement>('[data-rate]').forEach(el=>{const key=el.dataset.rate as 'nightlyPhp'|'weeklyPhp'|'monthlyPhp';el.textContent=formatPhp(config.pricing[key]);});onConfig();}).catch(()=>{configFailed=true;onConfig();});
-  return { update, normalizedPhone, showSuccess, get ready(){return ready;}, get rates(){return config.pricing;} };
+  return { update, normalizedPhone, showSuccess, get codes(){return codes;}, resetPromo(){codes=[];drawCodes();promoStatus.textContent='';}, get ready(){return ready;}, get rates(){return config.pricing;} };
 }

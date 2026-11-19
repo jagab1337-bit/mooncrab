@@ -12,6 +12,10 @@ import { getPublicConfig, hydrateContacts } from './business.ts';
 import { DIRECT_POLICY } from '../shared/booking-terms.ts';
 import { arrow, book, header, footer, home, icon, renderLanding, startMotion } from './site.ts';
 
+import { startAnalytics, track } from './analytics.ts';
+import { currentLanguage, mountAppearance } from './appearance.ts';
+
+startAnalytics();
 const app = document.querySelector<HTMLDivElement>('#app')!;
 function todayInManila(): string {
   const parts = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Manila', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date());
@@ -26,7 +30,7 @@ function booking() {
     <section class="calendar-panel" aria-labelledby="calendar-title"><div class="booking-calendar"><div class="calendar-intro"><p class="eyebrow">01 / CHOOSE YOUR DATES</p><h2 id="calendar-title">When shall we see you?</h2><p>Select your check-in, then your check-out. Stay for at least 2 nights. See your estimate as you choose.</p></div>
     <div class="calendar-controls"><button type="button" class="icon-button" id="prev-month" aria-label="Previous month">←</button><h3 id="calendar-month"></h3><button type="button" class="icon-button" id="next-month" aria-label="Next month">→</button></div><div class="weekdays" aria-hidden="true">${['Mon','Tue','Wed','Thu','Fri','Sat','Sun'].map(d => `<span>${d}</span>`).join('')}</div><div id="calendar-days" class="calendar-days" aria-label="Choose stay dates"></div><div class="calendar-legend"><span><i class="legend-free"></i>Available</span><span><i class="legend-blocked"></i>Unavailable</span><span><i class="legend-selected"></i>Your stay</span></div><div id="calendar-status" class="calendar-status" role="status" aria-live="polite"></div><button type="button" id="retry-calendar" class="under-link retry-button" hidden>Try again ↗</button>
     <div class="date-summary"><div><span>CHECK-IN · 2:00 PM</span><strong id="check-in">Choose a date</strong></div><span class="summary-arrow" aria-hidden="true">→</span><div><span>CHECK-OUT · 11:00 AM</span><strong id="check-out">Choose a date</strong></div><button class="under-link" type="button" id="clear-dates">Clear</button></div><p id="stay-length" class="stay-length" aria-live="polite">Minimum 2 nights, up to 90 nights per request. Dates are in Philippine time.</p></div>
-    <form id="booking-form" class="booking-form"><p class="eyebrow">02 / MAKE IT YOUR STAY</p><div class="guest-selector"><label for="guest-count">Number of guests</label><select id="guest-count" name="guests"><option value="1">1 guest</option><option value="2" selected>2 guests</option><option value="3">3 guests · +₱500 per night</option></select><p id="guest-charge" aria-live="polite">Two guests are included in the standard room rate.</p></div><div class="form-row"><label>Your name<input name="name" autocomplete="name" maxlength="100" required placeholder="Full name"></label><label>Email address<input name="email" type="email" autocomplete="email" maxlength="254" required placeholder="you@example.com"></label></div>${phoneFields()}<label>A note for your host <span class="optional">(optional)</span><textarea name="message" maxlength="1000" rows="3" placeholder="Airport transfers, a pickup rental, island tours, or anything else?"></textarea></label><label class="consent"><input type="checkbox" name="consent" required><span>I agree to share these details with Mooncrab to respond to my stay request.</span></label><section class="booking-policy" aria-labelledby="booking-policy-title"><h3 id="booking-policy-title">Booking &amp; Cancellation Policy</h3><p>${DIRECT_POLICY.deposit} ${DIRECT_POLICY.cancellation} Reservations are subject to Moon Crab’s confirmation.</p><label class="consent"><input type="checkbox" name="policyAccepted" required><span>I have read and agree to Moon Crab Siargao’s booking, cancellation, and non-refundable deposit policies.</span></label></section><button type="submit" class="button" id="request-stay" disabled>Request this stay ${arrow}</button><p class="request-note">Your host will confirm availability and the booking total before sending bank/QR details for a 50% deposit. Wait for Moon Crab’s confirmation before making travel arrangements.</p><p class="privacy-note">Only the host can view your name, email, and note. Please don’t include passwords, banking details, or sensitive information.</p><div id="request-status" role="status" aria-live="polite"></div></form></section></div></main>${footer()}`;
+    <form id="booking-form" class="booking-form"><p class="eyebrow">02 / MAKE IT YOUR STAY</p><div class="guest-selector"><label for="guest-count">Number of guests</label><select id="guest-count" name="guests"><option value="1">1 guest</option><option value="2" selected>2 guests</option><option value="3">3 guests · +₱500 per night</option></select><p id="guest-charge" aria-live="polite">Two guests are included in the standard room rate.</p></div><div class="form-row"><label><span data-i18n="name">Your name</span><input name="name" autocomplete="name" maxlength="100" required placeholder="Full name"></label><label><span data-i18n="email">Email address</span><input name="email" type="email" autocomplete="email" maxlength="254" required placeholder="you@example.com"></label></div>${phoneFields()}<label>A note for your host <span class="optional">(optional)</span><textarea name="message" maxlength="1000" rows="3" placeholder="Airport transfers, a pickup rental, island tours, or anything else?"></textarea></label><label class="consent"><input type="checkbox" name="consent" required><span>I agree to share these details with Mooncrab to respond to my stay request.</span></label><section class="booking-policy" aria-labelledby="booking-policy-title"><h3 id="booking-policy-title"><span data-i18n="policy">Booking &amp; Cancellation Policy</span></h3><p><span data-policy-copy>${DIRECT_POLICY.deposit} ${DIRECT_POLICY.cancellation}</span> Reservations are subject to Moon Crab’s confirmation.</p><label class="consent"><input type="checkbox" name="policyAccepted" required><span data-policy-agreement-copy>I have read and agree to Moon Crab Siargao’s booking, cancellation, and non-refundable deposit policies.</span></label></section><button type="submit" class="button" id="request-stay" disabled><span data-i18n="request">Request this stay</span> ${arrow}</button><p class="request-note">Your host will confirm availability and the booking total before sending bank/QR details for a 50% deposit. Wait for Moon Crab’s confirmation before making travel arrangements.</p><p class="privacy-note">Only the host can view your name, email, and note. Please don’t include passwords, banking details, or sensitive information.</p><div id="request-status" role="status" aria-live="polite"></div></form></section></div></main>${footer()}`;
   const today = todayInManila();
   const firstMonth = today.slice(0, 7);
   const [fy, fm] = firstMonth.split('-').map(Number);
@@ -45,7 +49,7 @@ function booking() {
   const retry = $('#retry-calendar');
   const submit = $<HTMLButtonElement>('#request-stay');
   const form = $<HTMLFormElement>('#booking-form');
-  form.addEventListener('input', () => { requestId = crypto.randomUUID(); updateSummary(); });
+  form.addEventListener('input', () => { track('interaction'); requestId = crypto.randomUUID(); updateSummary(); });
   const interests: Record<string, string> = {
     'airport-transfer': 'Please help arrange airport pickup/drop-off at ₱350 per person each way.',
     'pickup-rental': 'I’m interested in the red 2023 Mitsubishi Strada GLS guest rental from ₱2,500 per day.',
@@ -144,7 +148,7 @@ function booking() {
       for (let d = new Date(`${checkIn}T00:00:00Z`); d.toISOString().slice(0, 10) < iso; d.setUTCDate(d.getUTCDate() + 1)) { const date = d.toISOString().slice(0, 10); dates.push(date); months.add(date.slice(0, 7)); }
       await Promise.all([...months].map(m => getMonth(m, true)));
       if (dates.some(d => cache.get(d.slice(0, 7))!.has(d))) { status.textContent = 'Part of that stay is unavailable. Please choose an earlier check-out or a new check-in.'; }
-      else { checkOut = iso; status.textContent = 'Your dates are selected. Tell us a little about yourself below.'; }
+      else { checkOut = iso; track('dates'); status.textContent = 'Your dates are selected. Tell us a little about yourself below.'; }
     } catch { dataReady = false; status.textContent = 'We couldn’t check all those nights. Please retry the calendar.'; retry.hidden = false; }
     busy = false; draw();
   }
@@ -162,7 +166,7 @@ function booking() {
     result.className = 'request-status'; result.textContent = 'Sending your stay request…';
     const fields = new FormData(form);
     try {
-      const response = await fetch('/api/booking-requests', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ room: 'KASAG', phone, whatsapp: fields.get('whatsapp') === 'on', checkIn, checkOut, guests: Number(fields.get('guests')), name: String(fields.get('name')).trim(), email: String(fields.get('email')).trim(), message: String(fields.get('message')).trim(), idempotencyKey: requestId, policyVersion: DIRECT_POLICY.version, policyAccepted: fields.get('policyAccepted') === 'on' }), signal: AbortSignal.timeout(15000) });
+      const response = await fetch('/api/booking-requests', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ room: 'KASAG', phone, whatsapp: fields.get('whatsapp') === 'on', checkIn, checkOut, guests: Number(fields.get('guests')), name: String(fields.get('name')).trim(), email: String(fields.get('email')).trim(), message: String(fields.get('message')).trim(), idempotencyKey: requestId, policyVersion: DIRECT_POLICY.version, policyAccepted: fields.get('policyAccepted') === 'on', couponCodes: bookingUi.codes, locale: currentLanguage() }), signal: AbortSignal.timeout(15000) });
       const data = await response.json();
       if (!response.ok) {
         if (response.status === 409) { checkOut = ''; cache.clear(); result.textContent = 'Those dates have just become unavailable. Please choose another stay.'; }
@@ -173,7 +177,7 @@ function booking() {
       } else if (typeof data.id === 'string' && data.status === 'pending' && data.pricing && Number.isFinite(data.pricing.totalPhp)) {
         bookingUi.showSuccess(data, String(fields.get('name')));
         result.classList.add('status-success'); result.textContent = `Your request is with Mooncrab. Please chat with us on WhatsApp to agree the total and receive bank/QR instructions for your 50% deposit. Reference: ${data.id}. Your room is not reserved until confirmed.`;
-        form.reset(); checkIn = ''; checkOut = ''; requestId = crypto.randomUUID();
+        form.reset(); bookingUi.resetPromo(); checkIn = ''; checkOut = ''; requestId = crypto.randomUUID();
         status.textContent = 'Your request has been sent. You can choose new dates for another enquiry.';
       } else { throw new Error('Unexpected response'); }
     } catch { result.classList.add('status-warning'); result.textContent = 'We couldn’t confirm delivery. Please retry with the same details; we’ll avoid creating a duplicate request.'; }
@@ -191,6 +195,7 @@ if (ownerPath === '/manage' || ownerPath === '/admin' || ownerPath.startsWith('/
 } else if (location.pathname.startsWith('/explore-siargao')) renderExplore(app, location.pathname);
 else if (ownerPath === '/booking' || (ownerPath === '' && location.hostname === 'booking.mooncrabsiargao.com')) booking();
 else renderLanding(app);
+mountAppearance();
 startMotion();
 startPhotoViewer();
 startExploreCarousel();

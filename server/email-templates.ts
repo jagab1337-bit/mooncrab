@@ -1,14 +1,18 @@
 import { readFileSync } from 'node:fs';
 import { DIRECT_POLICY, externalSource, paymentSummary, validPayment } from '../shared/booking-terms.ts';
 import type { BookingAgreement, BookingPayment } from '../shared/booking-terms.ts';
+import type { BookingEmailKind } from '../shared/email-workflows.ts';
+import type { CouponApplied } from '../shared/coupons.ts';
+import { localizedPolicy, translation } from '../shared/locale-data.ts';
 
 /** Real HTML text remains readable when an email client blocks remote images. */
 export interface EmailBooking {
   id: string; name: string; email: string; phone?: string; whatsapp?: boolean;
   room?: string; checkIn: string; checkOut: string; guests: number; message: string;
   status: string; createdAt: string;
-  payment?: BookingPayment; agreement?: BookingAgreement; source?: string;
-  pricing?: { nights: number; totalPhp: number; depositPhp: number; extraGuestFeePhp?: number; roomSubtotalPhp?: number; lineItems?: Array<{ label: string; totalPhp?: number; amountPhp?: number }> };
+  payment?: BookingPayment; agreement?: BookingAgreement; source?: string; manual?: boolean; declineReason?: string; locale?:string;
+  pricing?: { nights: number; totalPhp: number; depositPhp: number; extraGuestFeePhp?: number; roomSubtotalPhp?: number; lineItems?: Array<{ label: string; totalPhp?: number; amountPhp?: number }>;
+    coupons?: CouponApplied[]; discountPhp?: number; originalTotalPhp?: number };
 }
 
 export interface TemplateContacts { website: string; bookings: string; greetings: string; phone: string; whatsapp: string; instagram: string; facebook: string; maps: string }
@@ -49,12 +53,14 @@ function button(label: string, href: string, primary = false): string {
 }
 
 function summary(booking: EmailBooking, owner: boolean, paymentRows?: string[][]): string {
+  const promotion = discountRows(booking);
   const rows = [
     ['Room requested', booking.room || 'KASAG'],
     ['Check-in', `${date(booking.checkIn)} · 2:00 PM`],
     ['Check-out', `${date(booking.checkOut)} · 11:00 AM`],
     ['Duration', `${nights(booking)} nights`],
     ['Guests', String(booking.guests)],
+    ...promotion,
     ...(paymentRows ?? [
       ['Estimated accommodation total', booking.pricing ? peso(booking.pricing.totalPhp) : 'Host quote required'],
       ['50% deposit after agreement', booking.pricing ? peso(booking.pricing.depositPhp) : 'Based on the agreed total'],
@@ -62,11 +68,19 @@ function summary(booking: EmailBooking, owner: boolean, paymentRows?: string[][]
     ]),
     ...(owner ? [['Guest', booking.name], ['Email', booking.email], ['Phone', booking.phone || 'Not supplied on legacy request'], ['WhatsApp available', booking.whatsapp ? 'Yes' : 'Not indicated'], ['Submitted', new Date(booking.createdAt).toLocaleString('en-PH', { timeZone: 'Asia/Manila' }) + ' · Philippine time']] : []),
   ];
-  return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;background:#ede9dc;margin:22px 0;"><tr><td colspan="2" style="padding:17px 20px 5px;font-family:Georgia,serif;font-size:23px;color:#472F29;">Your requested island stay</td></tr>${rows.map(([label, value]) => `<tr><td style="width:47%;padding:8px 10px 8px 20px;font-family:Arial,Helvetica,sans-serif;font-size:12px;line-height:1.5;color:#716157;vertical-align:top;">${escapeHtml(label)}</td><td style="padding:8px 20px 8px 8px;font-family:Arial,Helvetica,sans-serif;font-size:12px;line-height:1.5;color:#472F29;vertical-align:top;">${escapeHtml(value)}</td></tr>`).join('')}<tr><td colspan="2" style="padding:8px 20px 17px;font-size:10px;color:#716157;">Reference: ${escapeHtml(booking.id)}</td></tr></table>`;
+  return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" bgcolor="#EDE9DC" style="border-collapse:collapse;background-color:#ede9dc;color:#472F29;margin:22px 0;"><tr><td colspan="2" style="padding:17px 20px 5px;font-family:Georgia,serif;font-size:23px;color:#472F29;">Your requested island stay</td></tr>${rows.map(([label, value]) => `<tr><td style="width:47%;padding:8px 10px 8px 20px;font-family:Arial,Helvetica,sans-serif;font-size:12px;line-height:1.5;color:#716157;vertical-align:top;">${escapeHtml(label)}</td><td style="padding:8px 20px 8px 8px;font-family:Arial,Helvetica,sans-serif;font-size:12px;line-height:1.5;color:#472F29;vertical-align:top;">${escapeHtml(value)}</td></tr>`).join('')}<tr><td colspan="2" style="padding:8px 20px 17px;font-size:10px;color:#716157;">Reference: ${escapeHtml(booking.id)}</td></tr></table>`;
+}
+
+function discountRows(booking: EmailBooking): string[][] {
+  const p=booking.pricing;
+  return p?.discountPhp && p.originalTotalPhp !== undefined ? [
+    ['Original total',peso(p.originalTotalPhp)],
+    [p.coupons?.length ? `Discount · ${p.coupons.map(c=>c.code).join(', ')}`:'Agreed discount',peso(p.discountPhp)],
+  ] : [];
 }
 
 function signedEmail(subject: string, content: string, text: string, contacts: TemplateContacts = EMAIL_CONTACTS) {
-  const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(subject)}</title></head><body style="margin:0;padding:20px 8px;background:#eae4d9;"><table role="presentation" width="600" align="center" cellpadding="0" cellspacing="0" style="width:100%;max-width:600px;border-collapse:collapse;background:#F7EEE3;"><tr><td style="height:6px;background:#839689;font-size:0;">&nbsp;</td></tr><tr><td style="padding:25px 28px 18px;text-align:center;"><a href="${escapeHtml(contacts.website)}"><img src="${escapeHtml(`${contacts.website}images/mooncrab-logo-email.png?v=20261119`)}" width="150" height="120" alt="Moon Crab Hostel · Siargao" style="display:block;width:150px;height:120px;margin:0 auto;border:0;"></a><p style="font-family:Arial,Helvetica,sans-serif;font-size:10px;letter-spacing:2px;color:#716157;">A SMALL STAY. A BEAUTIFUL ISLAND.</p></td></tr><tr><td style="padding:0 28px 24px;font-family:Arial,Helvetica,sans-serif;color:#472F29;font-size:14px;line-height:1.75;">${content}</td></tr><tr><td style="padding:0 10px 20px;">${signatureHtml}</td></tr></table></body></html>`;
+  const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="color-scheme" content="light"><meta name="supported-color-schemes" content="light"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(subject)}</title></head><body style="margin:0;padding:20px 8px;background-color:#eae4d9;color:#472F29;color-scheme:light;"><table role="presentation" bgcolor="#F7EEE3" width="600" align="center" cellpadding="0" cellspacing="0" style="width:100%;max-width:600px;border-collapse:collapse;background:#F7EEE3;"><tr><td style="height:6px;background:#839689;font-size:0;">&nbsp;</td></tr><tr><td bgcolor="#F7EEE3" style="background-color:#F7EEE3;color:#472F29;padding:25px 28px 18px;text-align:center;"><a href="${escapeHtml(contacts.website)}"><img src="${escapeHtml(`${contacts.website}images/mooncrab-logo-email-solid.png`)}" width="150" height="120" alt="Moon Crab Hostel · Siargao" style="display:block;width:150px;height:120px;margin:0 auto;border:0;"></a><p style="font-family:Arial,Helvetica,sans-serif;font-size:10px;letter-spacing:2px;color:#716157;">A SMALL STAY. A BEAUTIFUL ISLAND.</p></td></tr><tr><td bgcolor="#F7EEE3" style="background-color:#F7EEE3;padding:0 28px 24px;font-family:Arial,Helvetica,sans-serif;color:#472F29;font-size:14px;line-height:1.75;">${content}</td></tr><tr><td bgcolor="#F7EEE3" style="background-color:#F7EEE3;color:#472F29;padding:0 10px 20px;">${signatureHtml}</td></tr></table></body></html>`;
   return { subject, html, text: `${text}\n\n${signatureText}` };
 }
 
@@ -75,11 +89,13 @@ export function notificationTestEmail() {
   return signedEmail('Moon Crab booking notification test', `<p>${text}</p>`, text);
 }
 
-function directPolicy(booking: EmailBooking) {
+function directPolicy(booking: EmailBooking, owner = false) {
   if (booking.agreement?.version !== DIRECT_POLICY.version) return { html: '', text: '' };
-  const { deposit, cancellation } = DIRECT_POLICY;
-  const text = `Important Booking Information\n${deposit}\n${cancellation}\nFor assistance, please contact our team through WhatsApp.`;
-  return { text, html: `<p><strong>Important Booking Information</strong><br>${deposit}<br>${cancellation}<br>For assistance, please contact our team through WhatsApp.</p>` };
+  const locale=owner?'en':booking.locale??'en';
+  const [deposit,cancellation]=localizedPolicy(locale);
+  const label=locale==='en'?'Important Booking Information':translation(locale,'policy');
+  const text = `${label}\n${deposit}\n${cancellation}\nFor assistance, please contact our team through WhatsApp.`;
+  return { text, html: `<p lang="${escapeHtml(locale)}"${locale==='ar'?' dir="rtl"':''}><strong>${escapeHtml(label)}</strong><br>${escapeHtml(deposit)}<br>${escapeHtml(cancellation)}</p><p>For assistance, please contact our team through WhatsApp.</p>` };
 }
 
 function confirmedEmail(booking: EmailBooking, contacts: TemplateContacts) {
@@ -104,16 +120,29 @@ function confirmedEmail(booking: EmailBooking, contacts: TemplateContacts) {
     `Hi ${firstName(booking.name)},`, intro,
     `Booking reference: ${booking.id}`, `Room: ${booking.room || 'KASAG'}`,
     `Check-in: ${date(booking.checkIn)} · 2:00 PM`, `Check-out: ${date(booking.checkOut)} · 11:00 AM`,
-    `Nights: ${nights(booking)}`, `Guests: ${booking.guests}`, ...rows.map(([label, value]) => `${label}: ${value}`),
+    `Nights: ${nights(booking)}`, `Guests: ${booking.guests}`, ...[...discountRows(booking),...rows].map(([label, value]) => `${label}: ${value}`),
     paymentNote, policy.text, `WhatsApp: ${contacts.whatsapp}`, `${facebook.label}: ${facebook.href}`, `Instagram: ${contacts.instagram}`,
   ].filter(Boolean).join('\n\n');
   return signedEmail(subject, content, text, contacts);
 }
 
-export function bookingEmail(booking: EmailBooking, kind: 'guest' | 'owner' | 'confirmation', contacts: TemplateContacts = EMAIL_CONTACTS): { subject: string; html: string; text: string } {
+function declinedEmail(booking: EmailBooking, contacts: TemplateContacts) {
+  if (booking.status !== 'declined' || booking.manual || externalSource(booking.source)) throw new Error('A declined website request is required.');
+  const subject = 'Update Regarding Your Moon Crab Siargao Booking Request';
+  const greeting = `Hi ${firstName(booking.name)},`;
+  const intro = 'Thank you for your interest in staying with us at Moon Crab Siargao. We’re unable to confirm your request for the selected dates. We’re sorry for the inconvenience and would be happy to help you find another stay.';
+  const reason = booking.declineReason ? `Note from your host: ${booking.declineReason}` : '';
+  const facebook = facebookContact(contacts.facebook);
+  const html = `<h1 style="font-family:Georgia,serif;font-size:30px;line-height:1.2;color:#472F29;">An update on your stay request</h1><p>${escapeHtml(greeting)}</p><p>${intro}</p>${summary(booking, false, [['Status', 'Request declined']])}${reason ? `<p>${escapeHtml(reason).replace(/\n/g, '<br>')}</p>` : ''}<p>${button('Chat With Us on WhatsApp', contacts.whatsapp, true)}<br>${button(facebook.label, facebook.href)}${button('Instagram', contacts.instagram)}</p>`;
+  const text = [greeting, intro, `Reference: ${booking.id}\nRoom: ${booking.room || 'KASAG'}\nCheck-in: ${date(booking.checkIn)}\nCheck-out: ${date(booking.checkOut)}\nGuests: ${booking.guests}`, reason, `WhatsApp: ${contacts.whatsapp}`, `${facebook.label}: ${facebook.href}`, `Instagram: ${contacts.instagram}`].filter(Boolean).join('\n\n');
+  return signedEmail(subject, html, text, contacts);
+}
+
+export function bookingEmail(booking: EmailBooking, kind: BookingEmailKind, contacts: TemplateContacts = EMAIL_CONTACTS): { subject: string; html: string; text: string } {
   if (kind === 'confirmation') return confirmedEmail(booking, contacts);
+  if (kind === 'decline') return declinedEmail(booking, contacts);
   const owner = kind === 'owner';
-  const policy = directPolicy(booking);
+  const policy = directPolicy(booking,owner);
   const facebook = facebookContact(contacts.facebook);
   const adminRecordUrl = `https://mooncrabsiargao.com/admin#request-${encodeURIComponent(booking.id)}`;
   const subject = owner ? `🌙 New Moon Crab Booking Request — ${booking.name.replace(/[\r\n]+/g, ' ')}` : '🌙 Your Moon Crab Siargao Booking Request — Next Steps';
@@ -133,6 +162,7 @@ export function bookingEmail(booking: EmailBooking, kind: 'guest' | 'owner' | 'c
     owner ? 'A pending request has been saved. It does not reserve the room.' : 'Thank you for your booking request. To finish your booking, please chat with our team on WhatsApp.',
     `Reference: ${booking.id}`, `Room: ${booking.room || 'KASAG'}`, `Check-in: ${booking.checkIn} · 2:00 PM`, `Check-out: ${booking.checkOut} · 11:00 AM`, `Nights: ${nights(booking)}`, `Guests: ${booking.guests}`,
     `Estimated accommodation total: ${booking.pricing ? peso(booking.pricing.totalPhp) : 'Host quote required'}`,
+    ...discountRows(booking).map(([label,value])=>`${label}: ${value}`),
     `50% deposit after agreement: ${booking.pricing ? peso(booking.pricing.depositPhp) : 'Based on the agreed total'}`,
     'Status: Pending. Your reservation is not yet confirmed.',
     ...(owner ? [`Guest: ${booking.name}`, `Email: ${booking.email}`, `Phone: ${booking.phone || 'Not supplied'}`, `WhatsApp: ${booking.whatsapp ? 'Yes' : 'Not indicated'}`, `Submitted: ${booking.createdAt}`, `Notes: ${booking.message}`, `Dashboard: ${adminRecordUrl}`] : []),

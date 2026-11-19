@@ -1,0 +1,103 @@
+:root {
+  --surface-alt:#fbf7f0;
+  --surface-input:#fffaf4;
+  --surface-muted:#eeeadf;
+  --surface-sage:#edf0e8;
+  --surface-warm:#efe1d1;
+  --border-strong:#c5b5a6;
+  --sage-ink:#667b6c;
+  --gold-ink:#a88748;
+  --error-ink:#984c36;
+  --notice-ink:#79602b;
+  --focus:var(--cocoa);
+  --motion-fast:160ms;
+  --motion-standard:290ms;
+  --motion-reveal:520ms;
+  --motion-ease:cubic-bezier(.2,.7,.25,1);
+  color-scheme:light;
+}
+:root[data-theme=dark] {
+  --cream:#211915;
+  --paper:#2c221d;
+  --cocoa:#f3e8d7;
+  --muted:#cbb9a9;
+  --sand:#b7a391;
+  --line:#5e4a3f;
+  --sage:#a6bcae;
+  --ochre:#e7bf60;
+  --surface-alt:#2b211d;
+  --surface-input:#342720;
+  --surface-muted:#3b2e26;
+  --surface-sage:#293731;
+  --surface-warm:#403028;
+  --border-strong:#826c58;
+  --sage-ink:#a6c2ac;
+  --gold-ink:#dcbd72;
+  --error-ink:#ffc3b5;
+  --notice-ink:#efce8c;
+  --focus:#e7bf60;
+  color-scheme:dark;
+}
+[data-theme=dark] .header { background:color-mix(in srgb,var(--cream) 94%,transparent); }
+[data-theme=dark] .brand img, [data-theme=dark] .footer-logo { filter:brightness(0) invert(92%) sepia(19%) saturate(353%) hue-rotate(332deg); }
+[data-theme=dark] .button:not(:disabled):hover, [data-theme=dark] .owner-primary:not(:disabled):hover { background:#d9bc91; }
+[data-theme=dark] .button:disabled { background:#514439;color:#b9ab98;border-color:#514439; }
+[data-theme=dark] :is(.owner-day-confirmed,.owner-day-imported) { color:#fff5e5; }
+[data-theme=dark] .cta-section { background:#3a2b23;color:#f3e8d7; }
+[data-theme=dark] .cta-section :is(.eyebrow,p) { color:#cbb9a9; }
+[data-theme=dark] .cta-section h2 em { color:#b2c5b2; }
+[data-theme=dark] .hero-art figcaption { color:#f3e8d7; }
+[data-theme=dark] .workspace-stat { background:var(--surface-muted); }
+[data-theme=dark] .workspace-error-text, [data-theme=dark] .owner-status-error { color:#ffc3b5; }
+[data-theme=dark] .workspace-table thead, [data-theme=dark] .owner-requests-heading { background:var(--surface-muted); }
+[data-theme=dark] :is(.workspace-form,.owner-card,.booking-form,.phone-fields) :is(input:not([type=checkbox]),select,textarea) { background:var(--surface-input);color:var(--cocoa);border-color:var(--border-strong); }
+[data-theme=dark] .booking-policy { border-left-color:var(--sage); }
+.brand-art { position:relative; display:inline-flex; align-items:center; justify-content:center; }
+.brand-art .moon-glow { position:absolute; pointer-events:none; width:25%;height:38%;top:8%;left:30%;border-radius:50%;background:radial-gradient(ellipse,#dab24180,transparent 66%);mix-blend-mode:multiply; animation:moon-breath 5s var(--motion-ease) infinite alternate; }
+[data-theme=dark] .brand-art .moon-glow { mix-blend-mode:screen; }
+.brand-art .brand-logo { animation:brand-drift 10s var(--motion-ease) infinite alternate; }
+.brand-art .crab-detail { position:absolute; inset:0; clip-path:inset(72% 37% 11%); animation:crab-shift 9s ease-in-out infinite; }
+@keyframes moon-breath { from{opacity:.07;transform:scale(.95)}to{opacity:.42;transform:scale(1.08)} }
+@keyframes brand-drift { from{transform:translateY(0)}to{transform:translateY(-1px)} }
+@keyframes crab-shift { 0%,78%,100%{opacity:0;transform:translateX(0)}84%{opacity:.6;transform:translateX(.6px)}91%{opacity:.3;transform:translateX(-.4px)} }
+.appearance-controls { display:flex;align-items:center;justify-content:space-between;gap:8px; }
+.appearance-controls summary { list-style:none; cursor:pointer; display:grid;place-items:center; min-height:36px;min-width:36px;border:1px solid var(--line);border-radius:4px;font-size:16px;line-height:1; }
+.appearance-controls summary::-webkit-details-marker { display:none; }
+.appearance-controls details { position:relative; }
+.appearance-controls .appearance-menu { position:absolute; inset-inline-end:0; top:calc(100% + 8px); z-index:25; min-width:155px; background:var(--paper); border:1px solid var(--line); border-radius:4px; padding:10px; box-shadow:0 6px 18px #15100c22; }
+.appearance-menu label { display:grid; gap:5px; font-size:12px; }
+.appearance-menu select, .appearance-menu input { width:100%; background:var(--surface-input); color:var(--cocoa); border:1px solid var(--line);border-radius:3px;padding:5px; }
+.workspace-heading { display:flex; justify-content:space-between;flex-wrap:wrap;gap:14px;align-items:center;margin-bottom:16px; }
+.workspace-actions :is(button,a) { min-height:36px; }
+.workspace-actions :is(button,a):focus-visible,.appearance-controls :is(summary,select,input):focus-visible { outline:2px solid var(--focus);outline-offset:2px; }
+.workspace-panel button:not(:disabled) { transition:background var(--motion-fast),border-color var(--motion-fast),color var(--motion-fast); }
+.hero-copy,.booking-heading { position:relative; isolation:isolate; }
+.starfield { position:absolute; inset:0; overflow:hidden; pointer-events:none; z-index:-1; }
+.starfield span { position:absolute; background:#ad7f2b; border-radius:50%; opacity:.18; }
+.starfield .twinkle { animation:star-twinkle var(--duration) ease-in-out var(--delay) infinite alternate; }
+[data-theme=dark] .starfield span { background:#f3ce83; opacity:.45; }
+@keyframes star-twinkle { from{opacity:.10} to{opacity:.55} }
+.faq summary>span { transition:transform var(--motion-standard) var(--motion-ease); }
+@supports (interpolate-size: allow-keywords) {
+  .faq details::details-content {
+    interpolate-size:allow-keywords; block-size:0; overflow:clip; opacity:0;
+    transition:block-size var(--motion-standard) var(--motion-ease),opacity var(--motion-standard),content-visibility var(--motion-standard) allow-discrete;
+  }
+  .faq details[open]::details-content { block-size:auto;opacity:1;content-visibility:visible; }
+}
+@media(max-width:650px) {
+  .starfield span:nth-child(n+43) { display:none; }
+  .appearance-controls { gap:5px; }
+  .appearance-controls summary { min-width:32px;min-height:36px; }
+}
+@media(prefers-reduced-motion:reduce) {
+  :root { --motion-fast:0ms;--motion-standard:0ms;--motion-reveal:0ms; }
+  .starfield span,.brand-art :is(.brand-logo,.moon-glow,.crab-detail) { animation:none!important; }
+  .brand-art .crab-detail { display:none; }
+}
+
+@media(max-width:650px) {
+  .appearance-controls .button { min-width:0; gap:6px; padding-inline:10px; }
+  .appearance-controls .button .arrow-icon { display:none; }
+  .appearance-controls .appearance-menu { min-width:165px; }
+}
