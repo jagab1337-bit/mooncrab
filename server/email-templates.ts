@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import { DIRECT_POLICY, externalSource, paymentSummary, validPayment } from '../shared/booking-terms.ts';
+import { DIRECT_POLICY, externalSource, hasRecordedDirectPolicy, paymentSummary, validPayment } from '../shared/booking-terms.ts';
 import type { BookingAgreement, BookingPayment } from '../shared/booking-terms.ts';
 import type { BookingEmailKind } from '../shared/email-workflows.ts';
 import type { CouponApplied } from '../shared/coupons.ts';
@@ -90,10 +90,10 @@ export function notificationTestEmail() {
 }
 
 function directPolicy(booking: EmailBooking, owner = false) {
-  if (booking.agreement?.version !== DIRECT_POLICY.version) return { html: '', text: '' };
+  if (!hasRecordedDirectPolicy(booking.agreement?.version)) return { html: '', text: '' };
   const locale=owner?'en':booking.locale??'en';
-  const [deposit,cancellation]=localizedPolicy(locale);
-  const label=locale==='en'?'Important Booking Information':translation(locale,'policy');
+  const [deposit,cancellation]=localizedPolicy(locale, booking.agreement?.version);
+  const label=locale==='en'?'Booking and Cancellation Policy for This Reservation':translation(locale,'policy');
   const text = `${label}\n${deposit}\n${cancellation}\nFor assistance, please contact our team through WhatsApp.`;
   return { text, html: `<p lang="${escapeHtml(locale)}"${locale==='ar'?' dir="rtl"':''}><strong>${escapeHtml(label)}</strong><br>${escapeHtml(deposit)}<br>${escapeHtml(cancellation)}</p><p>For assistance, please contact our team through WhatsApp.</p>` };
 }

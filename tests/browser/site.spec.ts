@@ -90,7 +90,10 @@ test('sends a pending request with actual selected dates, not a confirmed bookin
   await page.getByRole('checkbox', {name:'I agree to share these details'}).check();
   const policy = page.getByRole('checkbox', {name:/I have read and agree to Moon Crab/});
   await expect(policy).not.toBeChecked();
-  await expect(page.getByRole('region', {name:'Booking & Cancellation Policy'})).toContainText('non-refundable');
+  const policyDetails = page.getByRole('region', {name:'Booking & Cancellation Policy'});
+  await expect(policyDetails).toContainText('14 days or more before check-in for a full refund');
+  await expect(policyDetails).toContainText('7–13 days before check-in for a 50% refund');
+  await expect(policyDetails).toContainText('fewer than 7 days before check-in are not refundable');
   await page.getByRole('button', { name: 'Request this stay' }).click();
   expect(payload).toEqual({});
   await policy.check();
@@ -239,7 +242,7 @@ test('manual platform and direct reservations offer different email actions', as
   await source.selectOption('Partner referral');
   await manual.getByLabel('Guest email').fill('test@example.com');
   await manual.getByLabel('Payment actually received (PHP)').fill('1500');
-  await manual.getByRole('checkbox', {name:/Guest agreed to the 50%/}).check();
+  await manual.getByRole('checkbox', {name:'Guest agreed to the booking and cancellation policy.'}).check();
   page.once('dialog', dialog=>dialog.accept());
   await send.click();
   await expect(page.locator('#owner-requests-status')).toContainText('Accepted by Spacemail');

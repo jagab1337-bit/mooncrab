@@ -49,7 +49,10 @@ export const manualBookingFields = `<div class="owner-settings-grid owner-manual
 </div>
 ${paymentFields()}
 <label class="owner-manual-notes">Private reservation notes<textarea name="message" maxlength="2000" rows="3"></textarea></label>
-<label class="owner-request-agreement" data-policy-agreement><input type="checkbox" name="policyAccepted"> Guest agreed to the 50% non-refundable deposit and same-day cancellation policy.</label>
+<div data-policy-agreement>
+  <p class="owner-hint" id="manual-booking-policy">${DIRECT_POLICY.deposit} ${DIRECT_POLICY.cancellation}</p>
+  <label class="owner-request-agreement"><input type="checkbox" name="policyAccepted" aria-describedby="manual-booking-policy"> Guest agreed to the booking and cancellation policy.</label>
+</div>
 <p class="owner-hint" data-source-note>Confirmation email requires a guest email and recorded policy agreement.</p>
 <div class="owner-request-actions"><button type="submit">Save Without Sending Email</button><button class="owner-primary" type="submit" name="sendEmail">Confirm Booking &amp; Send Email</button></div>`;
 

@@ -8,7 +8,7 @@ import { authorizeAdmin } from './admin-auth.ts';
 import { normalizePhone, readBusinessSettings } from './business-settings.ts';
 import { calculatePricing } from '../shared/pricing.ts';
 import type { PricingSnapshot } from '../shared/pricing.ts';
-import { DIRECT_POLICY, externalSource, MANUAL_SOURCES, validPayment } from '../shared/booking-terms.ts';
+import { DIRECT_POLICY, externalSource, hasRecordedDirectPolicy, MANUAL_SOURCES, validPayment } from '../shared/booking-terms.ts';
 import type { BookingAgreement, BookingPayment } from '../shared/booking-terms.ts';
 import {
   BOOKING_RECORD_PREFIX, CLAIM_MILLISECONDS, EMAIL_JOB_PREFIX, EMAIL_OUTBOX_INDEX, EMAIL_PENDING_KEY, ENQUEUE_EMAIL_JOB_LUA,
@@ -563,7 +563,7 @@ export function createAdminBookingRequestsHandler(options: EmailOptions = {}) {
       if (declineReason.length > 600 || /[\u0000-\u0008\u000b\u000c\u000e-\u001f]/.test(declineReason)) {
         res.status(400).json({error:'Enter a decline reason of up to 600 characters.'}); return;
       }
-      if (sendEmail && (!EMAIL.test(record.email) || (record.manual && record.agreement?.version !== DIRECT_POLICY.version))) {
+      if (sendEmail && (!EMAIL.test(record.email) || (record.manual && !hasRecordedDirectPolicy(record.agreement?.version)))) {
         res.status(400).json({ error: 'A valid guest email and, for manual entries, a recorded direct-booking policy agreement are required.' }); return;
       }
       if (body.action === 'confirm' && !await calendarsReady(emailOptions, at)) {

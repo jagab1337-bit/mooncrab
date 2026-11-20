@@ -2,7 +2,8 @@ import './manage.css';
 import './admin-workspace.css';
 import { showError } from './admin-workspace.ts';
 import { bindManualBooking, bindPayment, manualBookingFields, paymentFields } from './admin-bookings.ts';
-import { centsFromInput, DIRECT_POLICY, externalSource } from '../shared/booking-terms.ts';
+import { centsFromInput, externalSource, hasRecordedDirectPolicy } from '../shared/booking-terms.ts';
+import { localizedPolicy } from '../shared/locale-data.ts';
 import type { BookingAgreement, BookingPayment } from '../shared/booking-terms.ts';
 import type { Communication } from './admin-email.ts';
 import type { PricingSnapshot } from '../shared/pricing.ts';
@@ -572,7 +573,7 @@ export async function renderManage(container: HTMLElement): Promise<void> {
     const label = declined ? 'Decline' : 'Confirmation';
     status.textContent = `${label} email · ${job ? emailStatus[job.status] ?? job.status : 'No retained submission'}`;
     row.append(status);
-    const eligible = declined || (booking.status === 'confirmed' && booking.payment && booking.checkOut > today && !externalSource(booking.source) && (!booking.manual || booking.agreement?.version===DIRECT_POLICY.version));
+    const eligible = declined || (booking.status === 'confirmed' && booking.payment && booking.checkOut > today && !externalSource(booking.source) && (!booking.manual || hasRecordedDirectPolicy(booking.agreement?.version)));
     if (eligible && booking.email) {
       const preview = document.createElement('button'); preview.type='button'; preview.textContent='Preview Booking Email';
       preview.onclick = () => { void import('./admin-email.ts').then(({previewBookingEmail})=>previewBookingEmail(adminFetch, declined ? 'decline' : booking.manual ? 'manual' : 'confirmation', booking.id)).catch(error=>showError(status,error)); };
@@ -696,8 +697,8 @@ export async function renderManage(container: HTMLElement): Promise<void> {
         card.append(audit);
       }
       const policy = document.createElement('p'); policy.className = 'owner-hint';
-      policy.textContent = `${booking.source ?? 'Website'} · ${externalSource(booking.source) ? 'Booking platform policy applies.' : booking.agreement?.version === DIRECT_POLICY.version
-        ? `Policy ${booking.agreement.version}, ${booking.agreement.recordedBy === 'guest' ? 'accepted by guest' : 'recorded by host'} ${emailTime(booking.agreement.acceptedAt)}. ${DIRECT_POLICY.deposit} ${DIRECT_POLICY.cancellation}`
+      policy.textContent = `${booking.source ?? 'Website'} · ${externalSource(booking.source) ? 'Booking platform policy applies.' : booking.agreement && hasRecordedDirectPolicy(booking.agreement.version)
+        ? `Policy ${booking.agreement.version}, ${booking.agreement.recordedBy === 'guest' ? 'accepted by guest' : 'recorded by host'} ${emailTime(booking.agreement.acceptedAt)}. ${localizedPolicy('en', booking.agreement.version).slice(0, 2).join(' ')}`
         : booking.agreement ? `Recorded policy version ${booking.agreement.version}.` : 'No acceptance of the current policy is recorded.'}`;
       card.append(policy);
       if (!booking.manual) drawNotification(card, booking.id);
@@ -732,7 +733,7 @@ export async function renderManage(container: HTMLElement): Promise<void> {
         agreement.append(agreed, agreementLabel);
         const sendEmail = document.createElement('input');
         sendEmail.type = 'checkbox';
-        if (booking.manual && booking.email && !externalSource(booking.source) && booking.agreement?.version === DIRECT_POLICY.version) {
+        if (booking.manual && booking.email && !externalSource(booking.source) && booking.agreement && hasRecordedDirectPolicy(booking.agreement.version)) {
           const sendLabel = document.createElement('label'); sendLabel.className = 'owner-request-agreement';
           sendLabel.append(sendEmail, 'Send the guest a confirmation email');
           review.append(sendLabel);

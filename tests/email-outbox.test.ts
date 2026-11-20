@@ -11,7 +11,7 @@ import type { EmailJob, EmailSender } from '../server/email-outbox.ts';
 import { bookingEmail, firstName } from '../server/email-templates.ts';
 import type { EmailBooking } from '../server/email-templates.ts';
 import type { Environment, RedisCommand } from '../server/availability.ts';
-import { DIRECT_POLICY } from '../shared/booking-terms.ts';
+import { DIRECT_POLICY, PREVIOUS_DIRECT_POLICY_VERSION } from '../shared/booking-terms.ts';
 
 const id = '242c4998-09a4-4876-bd8d-e3bdc5cd1195';
 const fixedNow = new Date('2026-11-18T00:00:00Z');
@@ -130,8 +130,9 @@ test('confirmation distinguishes required deposit, verified payments and the out
   assert.match(unpaid.text, /Payment received: No payment recorded/);
   assert.match(unpaid.text, /Deposit outstanding: ₱4,000/);
   assert.match(unpaid.text, /Remaining balance: ₱8,000/);
-  assert.match(unpaid.html, /non-refundable/);
-  assert.match(unpaid.html, /Same-day cancellations are not allowed/);
+  assert.match(unpaid.html, /Booking and Cancellation Policy for This Reservation/);
+  assert.ok(unpaid.text.includes(DIRECT_POLICY.cancellation));
+  assert.doesNotMatch(unpaid.html, /non-refundable|Same-day cancellations/);
   assert.match(unpaid.html, /Chat With Us on WhatsApp/);
   assert.ok(unpaid.text.includes(id));
   assertPublishedSignature(unpaid);
@@ -141,6 +142,12 @@ test('confirmation distinguishes required deposit, verified payments and the out
   assert.match(partial.text, /Deposit outstanding: ₱2,500/);
   const legacy = bookingEmail({ ...booking, agreement: undefined }, 'confirmation');
   assert.doesNotMatch(legacy.html, /Same-day cancellations|non-refundable/);
+  const previous = bookingEmail({
+    ...booking,
+    agreement: { ...booking.agreement!, version: PREVIOUS_DIRECT_POLICY_VERSION },
+  }, 'confirmation');
+  assert.match(previous.text, /Booking and Cancellation Policy for This Reservation\n.*non-refundable\.\nSame-day cancellations/);
+  assert.match(previous.text, /Cancellation policy for new direct bookings\nCancel 14 days or more/);
   assert.throws(() => bookingEmail({ ...booking, status: 'pending' }, 'confirmation'));
   assert.throws(() => bookingEmail({ ...booking, source: 'Airbnb' }, 'confirmation'));
 });

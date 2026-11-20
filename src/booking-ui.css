@@ -5,7 +5,7 @@
 .booking-alternatives a,.request-dialog-social a{display:inline-flex;align-items:center;gap:7px}.booking-alternatives .arrow-icon,.request-dialog-social .arrow-icon{width:14px;height:14px}
 
 .booking-policy { padding:18px; border:1px solid var(--line); border-left:3px solid var(--sage); background:var(--cream); }
-.booking-policy h3 { margin:0 0 10px; font-size:23px; }
+.booking-policy h3 { margin:0 0 10px; font-size:23px; scroll-margin-top:100px; }
 .booking-policy p { margin:0 0 14px; font-size:14px; line-height:1.65; }
 .booking-policy .consent { margin-bottom:0; }
 

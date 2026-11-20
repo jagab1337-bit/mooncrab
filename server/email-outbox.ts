@@ -8,7 +8,7 @@ import type { EmailBooking } from './email-templates.ts';
 import { readBusinessSettings } from './business-settings.ts';
 import { EMAIL_WORKFLOWS, TOGGLEABLE_WORKFLOWS } from '../shared/email-workflows.ts';
 import type { BookingEmailKind, EmailWorkflow } from '../shared/email-workflows.ts';
-import { DIRECT_POLICY, externalSource, validPayment } from '../shared/booking-terms.ts';
+import { DIRECT_POLICY, externalSource, hasRecordedDirectPolicy, validPayment } from '../shared/booking-terms.ts';
 
 export const EMAIL_JOB_PREFIX = 'mooncrab:email-job:';
 export const EMAIL_OUTBOX_INDEX = 'mooncrab:email-outbox';
@@ -331,7 +331,7 @@ function emailKind(value: unknown): value is 'confirmation' | 'decline' {
 function eligibleBooking(kind: 'confirmation' | 'decline', booking: EmailBooking): boolean {
   if (!booking.email || externalSource(booking.source)) return false;
   return kind === 'decline' ? booking.status === 'declined' && !booking.manual
-    : booking.status === 'confirmed' && validPayment(booking.payment) && (!booking.manual || booking.agreement?.version===DIRECT_POLICY.version);
+    : booking.status === 'confirmed' && validPayment(booking.payment) && (!booking.manual || hasRecordedDirectPolicy(booking.agreement?.version));
 }
 
 async function previewEmail(req: ApiRequest, command: RedisCommand) {

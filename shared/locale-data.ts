@@ -1,3 +1,5 @@
+import { DIRECT_POLICY, PREVIOUS_DIRECT_POLICY_VERSION } from './booking-terms.ts';
+
 const keys = ['room','perks','explore','location','details','book','promo','apply','remove','invalid','applied','discount','total','arrival','departure','name','email','request','policy'] as const;
 export type LocaleKey = typeof keys[number];
 
@@ -27,7 +29,7 @@ const rows: Record<string, [string, string]> = {
 export const locales=Object.entries(rows).map(([code,[name]])=>({code,name}));
 export function translation(locale:string,key:LocaleKey) {return (rows[locale]??rows.en)[1].split('|')[keys.indexOf(key)];}
 
-const bookingPolicies:Record<string,[string,string,string]> = {
+const previousBookingPolicies:Record<string,[string,string,string]> = {
   en: ['A 50% deposit is required to secure your reservation and is non-refundable.','Same-day cancellations are not allowed.','I have read and agree to Moon Crab Siargao’s booking, cancellation, and non-refundable deposit policies.'],
   fil: ['Kailangan ang 50% na deposito upang matiyak ang iyong reserbasyon. Hindi ito maibabalik.','Hindi pinapayagan ang pagkansela sa mismong araw.','Nabasa ko at sinasang-ayunan ko ang mga patakaran ng Moon Crab Siargao sa reserbasyon, pagkansela, at hindi maibabalik na deposito.'],
   ceb: ['Kinahanglan ang 50% nga deposito aron masiguro ang imong reserbasyon. Dili kini mauli.','Dili tugotan ang pagkansela sa samang adlaw.','Nabasa ug giuyonan nako ang mga patakaran sa Moon Crab Siargao bahin sa reserbasyon, pagkansela, ug deposito nga dili mauli.'],
@@ -50,4 +52,30 @@ const bookingPolicies:Record<string,[string,string,string]> = {
   hi: ['आपका आरक्षण सुरक्षित करने के लिए 50% की गैर-वापसी योग्य जमा राशि आवश्यक है।','उसी दिन रद्द करने की अनुमति नहीं है।','मैंने Moon Crab Siargao की बुकिंग, रद्दीकरण और गैर-वापसी योग्य जमा राशि की नीतियाँ पढ़ ली हैं और उनसे सहमत हूँ।'],
 };
 export function isLocale(value:unknown):value is string {return typeof value==='string'&&Object.hasOwn(rows,value);}
-export function localizedPolicy(locale:string) {return bookingPolicies[locale]??bookingPolicies.en;}
+export function localizedPolicy(locale: string, version: string = DIRECT_POLICY.version) {
+  const policies = version === PREVIOUS_DIRECT_POLICY_VERSION ? previousBookingPolicies : bookingPolicies;
+  return policies[locale] ?? policies.en;
+}
+
+const bookingPolicies: Record<string, [string, string, string]> = {
+  en: [DIRECT_POLICY.deposit, DIRECT_POLICY.cancellation, DIRECT_POLICY.agreement],
+  fil: ['Kailangan ang 50% na deposito upang matiyak ang reserbasyon.', 'Buong halagang binayaran ang ibabalik kung magkakansela 14 na araw o higit pa bago ang check-in. Kung 7–13 araw bago ang check-in, 50% ang ibabalik. Kung mas mababa sa 7 araw, walang refund.', 'Nabasa ko at sinasang-ayunan ko ang patakaran ng Moon Crab Siargao sa reserbasyon at pagkansela.'],
+  ceb: ['Kinahanglan ang 50% nga deposito aron masiguro ang reserbasyon.', 'Kung magkansela 14 ka adlaw o labaw pa sa dili pa ang check-in, mauli ang tibuok gibayad. Kung 7–13 ka adlaw, 50% sa gibayad ang mauli. Kung ubos sa 7 ka adlaw, walay refund.', 'Nabasa ug giuyonan nako ang patakaran sa Moon Crab Siargao sa reserbasyon ug pagkansela.'],
+  es: ['Se requiere un depósito del 50 % para asegurar la reserva.', 'Si cancelas 14 días o más antes de la llegada, recibirás un reembolso completo del importe pagado. Si cancelas entre 7 y 13 días antes, se reembolsa el 50 %. Con menos de 7 días de antelación, no hay reembolso.', 'He leído y acepto la política de reservas y cancelaciones de Moon Crab Siargao.'],
+  fr: ['Un acompte de 50 % est exigé pour garantir la réservation.', 'Annulez au moins 14 jours avant votre arrivée pour obtenir le remboursement intégral du montant payé. Entre 7 et 13 jours avant, le remboursement est de 50 %. À moins de 7 jours, aucun remboursement ne s’applique.', 'J’ai lu et j’accepte les conditions de réservation et d’annulation de Moon Crab Siargao.'],
+  de: ['Für die Buchung ist eine Anzahlung von 50 % erforderlich.', 'Bei einer Stornierung mindestens 14 Tage vor dem Check-in wird der gezahlte Betrag vollständig erstattet. Bei 7–13 Tagen Vorlauf beträgt die Erstattung 50 %. Weniger als 7 Tage vorher gibt es keine Erstattung.', 'Ich habe die Buchungs- und Stornierungsbedingungen von Moon Crab Siargao gelesen und akzeptiere sie.'],
+  it: ['Per garantire la prenotazione è richiesto un acconto del 50%.', 'Se annulli almeno 14 giorni prima del check-in, ricevi il rimborso integrale dell’importo pagato. Da 7 a 13 giorni prima, si rimborsa il 50%. A meno di 7 giorni dal check-in, non è previsto alcun rimborso.', 'Ho letto e accetto le condizioni di prenotazione e cancellazione di Moon Crab Siargao.'],
+  pt: ['É necessário um depósito de 50% para garantir a reserva.', 'Cancele com 14 dias ou mais de antecedência do check-in para receber o reembolso integral do valor pago. De 7 a 13 dias antes, o reembolso é de 50%. Com menos de 7 dias de antecedência, não há reembolso.', 'Li e aceito a política de reservas e cancelamentos do Moon Crab Siargao.'],
+  nl: ['Voor een definitieve reservering is een aanbetaling van 50% vereist.', 'Bij annulering 14 dagen of langer voor het inchecken krijg je het volledige betaalde bedrag terug. Bij 7–13 dagen van tevoren krijg je 50% terug. Bij minder dan 7 dagen van tevoren is er geen restitutie.', 'Ik heb het boekings- en annuleringsbeleid van Moon Crab Siargao gelezen en ga ermee akkoord.'],
+  ja: ['予約の確保には50％の前金が必要です。','チェックインの14日前までにキャンセルすると、支払済み金額を全額返金します。7〜13日前のキャンセルは支払済み金額の50％を返金します。7日前を過ぎると返金はありません。','Moon Crab Siargaoの予約・キャンセル規約を読み、同意します。'],
+  ko: ['예약을 확보하려면 50%의 예약금을 결제해야 합니다.','체크인 14일 전까지 취소하면 결제 금액 전액을 환불합니다. 7~13일 전에 취소하면 결제 금액의 50%를 환불합니다. 체크인까지 7일 미만인 경우 환불되지 않습니다.','Moon Crab Siargao의 예약 및 취소 정책을 읽고 동의합니다.'],
+  'zh-Hans': ['须支付 50% 的订金以确保预订。','在入住前至少 14 天取消，可全额退还已付款项。入住前 7–13 天取消，可退还已付款项的 50%。距入住不足 7 天取消，不予退款。','我已阅读并同意 Moon Crab Siargao 的预订和取消政策。'],
+  'zh-Hant': ['須支付 50% 的訂金以確保預訂。','在入住前至少 14 天取消，可全額退還已付款項。入住前 7–13 天取消，可退還已付款項的 50%。距入住不足 7 天取消，恕不退款。','我已閱讀並同意 Moon Crab Siargao 的預訂及取消政策。'],
+  id: ['Uang muka 50% diperlukan untuk menjamin pemesanan.', 'Jika dibatalkan 14 hari atau lebih sebelum check-in, seluruh pembayaran dikembalikan. Jika dibatalkan 7–13 hari sebelumnya, 50% dikembalikan. Jika kurang dari 7 hari, tidak ada pengembalian dana.', 'Saya telah membaca dan menyetujui kebijakan pemesanan dan pembatalan Moon Crab Siargao.'],
+  ms: ['Deposit 50% diperlukan untuk menjamin tempahan.', 'Pembatalan sekurang-kurangnya 14 hari sebelum daftar masuk menerima bayaran balik penuh. Pembatalan 7–13 hari sebelum menerima 50% daripada jumlah yang dibayar. Pembatalan kurang daripada 7 hari sebelum daftar masuk tidak mendapat bayaran balik.', 'Saya telah membaca dan bersetuju dengan dasar tempahan dan pembatalan Moon Crab Siargao.'],
+  th: ['ต้องชำระเงินมัดจำ 50% เพื่อยืนยันการจอง','หากยกเลิกอย่างน้อย 14 วันก่อนเช็กอิน จะได้รับเงินที่ชำระไปคืนเต็มจำนวน หากยกเลิก 7–13 วันก่อนเช็กอิน จะได้รับคืน 50% หากยกเลิกน้อยกว่า 7 วันก่อนเช็กอิน จะไม่ได้รับเงินคืน','ฉันได้อ่านและยอมรับนโยบายการจองและการยกเลิกของ Moon Crab Siargao'],
+  vi: ['Cần đặt cọc 50% để giữ chỗ.','Hủy ít nhất 14 ngày trước khi nhận phòng sẽ được hoàn lại toàn bộ số tiền đã thanh toán. Hủy trước 7–13 ngày được hoàn 50%. Hủy trước dưới 7 ngày không được hoàn tiền.','Tôi đã đọc và đồng ý với chính sách đặt và hủy phòng của Moon Crab Siargao.'],
+  ru: ['Для подтверждения бронирования требуется предоплата в размере 50%.','При отмене за 14 дней и более до заезда возвращается вся уплаченная сумма. При отмене за 7–13 дней возвращается 50%. При отмене менее чем за 7 дней до заезда возврата нет.','Я ознакомился(-ась) с правилами бронирования и отмены Moon Crab Siargao и принимаю их.'],
+  ar: ['يلزم دفع عربون بنسبة 50٪ لضمان الحجز.','عند الإلغاء قبل تسجيل الوصول بـ14 يومًا أو أكثر، يُرد كامل المبلغ المدفوع. وعند الإلغاء قبل 7 إلى 13 يومًا، يُرد 50٪ من المبلغ المدفوع. ولا يُرد أي مبلغ عند الإلغاء قبل أقل من 7 أيام من تسجيل الوصول.','لقد قرأت سياسة الحجز والإلغاء لدى Moon Crab Siargao وأوافق عليها.'],
+  hi: ['आरक्षण सुरक्षित करने के लिए 50% अग्रिम राशि आवश्यक है।','चेक-इन से 14 दिन या अधिक पहले रद्द करने पर भुगतान की गई पूरी राशि वापस मिलेगी। 7–13 दिन पहले रद्द करने पर 50% राशि वापस मिलेगी। 7 दिन से कम समय पहले रद्द करने पर कोई राशि वापस नहीं मिलेगी।','मैंने Moon Crab Siargao की बुकिंग और रद्दीकरण नीति पढ़ ली है और उससे सहमत हूँ।'],
+};
