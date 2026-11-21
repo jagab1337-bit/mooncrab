@@ -313,17 +313,37 @@ img { max-width: 100%; }
   .day:not(:disabled):not(.selected):hover { border-color: var(--sage); }
 }
 @media(min-width:1051px) {
-  .hero { max-width: 1160px; grid-template-columns: minmax(0,1.2fr) minmax(0,1fr); }
-  .hero-art { width: min(100%, clamp(345px, 29vw, 390px)); }
+  .hero {
+    max-width: clamp(830px, 70vw, 1040px);
+    grid-template-columns: minmax(0, 1fr) clamp(345px, 30vw, 420px);
+    column-gap: clamp(38px, 3.6vw, 58px);
+    padding-block: clamp(28px, 2.8vw, 44px);
+  }
+  .hero-art { width: 100%; }
+  .hero h1 {
+    font-size: clamp(80px, 7.2vw, 112px);
+    line-height: .97;
+    letter-spacing: -.035em;
+  }
+  .hero-description { max-width: 54ch; font-size: clamp(15px, 1.14vw, 17px); line-height: 1.72; text-wrap: pretty; }
+  .hero-actions { gap: clamp(18px, 2vw, 30px); margin-top: 26px; }
+  .hero-actions .button { min-height: 50px; }
+  .hero-note>span { background: var(--gold-ink); }
   .pickup-photo { min-height:clamp(345px,25vw,580px); }
   .pickup-copy { align-self:center; }
   .location-map { height:clamp(390px,27vw,620px); }
   .social-images img { height:clamp(280px,22vw,500px); }
 }
+@media (min-width: 1051px) and (prefers-reduced-motion: no-preference) {
+  .hero-copy, .hero-art { animation: hero-arrive 460ms var(--motion-ease) backwards; }
+  .hero-copy { --hero-entry-offset: 6px; }
+  .hero-art { animation-delay: 65ms; }
+}
+@keyframes hero-arrive {
+  from { opacity: .68; transform: translateY(var(--hero-entry-offset, 0px)); }
+  to { opacity: 1; transform: translateY(0); }
+}
 @media(min-width:1600px) {
-  .hero { padding-block:40px; }
-  .hero h1 { font-size:clamp(88px,5.8vw,120px); }
-  .hero-description { max-width:480px; font-size:16px; }
   .room-copy>p:not(.room-lead), .location-copy>p:not(.eyebrow), .social-grid p:not(.eyebrow) { max-width:65ch; font-size:16px; }
   .pickup-copy>p:not(.eyebrow), .service-grid p:not(.eyebrow), .faq details>div { max-width:70ch; font-size:15px; }
   .booking-layout { grid-template-columns:minmax(320px,1fr) minmax(0,2fr); }
