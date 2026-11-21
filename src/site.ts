@@ -6,14 +6,24 @@ import { renderReviews } from './guest-reviews.ts';
 import { renderRoomCarousel } from './room-carousel.ts';
 export const home = '/';
 export const book = '/booking';
+const kasagVideo = '/videos/kasag-tour.mp4';
+const kasagPoster = '/images/kasag-tour-poster.webp';
+const kasagVideoDescription = 'A tour of Moon Crab Siargao, from the entrance to the KASAG bedroom and shared kitchen';
 const kasagHero = `<figure class="hero-art">
-  <video class="hero-video" data-source="/videos/kasag-tour.mp4" poster="/images/bedroom.webp" preload="none" muted playsinline loop
-    aria-label="A tour of Moon Crab Siargao, from the entrance to the KASAG bedroom and shared kitchen"></video>
-  <div class="hero-media-actions">
-    <a class="photo-link hero-media-control" href="/images/full/bedroom.webp" data-photo-viewer
-      data-caption="KASAG’s wooden bed, fresh linens, and green leaf wall hanging">View full photo</a>
+  <div class="hero-video-frame">
+    <img class="hero-video-poster" src="${kasagPoster}" width="720" height="1280" fetchpriority="high"
+      alt="The KASAG bedroom with its wooden bed and leaf wall hanging">
+    <video class="hero-video" poster="${kasagPoster}" preload="none" muted playsinline loop
+      aria-label="${kasagVideoDescription}"></video>
   </div>
-  <figcaption><span>KASAG</span><span>ONE ROOM. YOUR OWN ISLAND RHYTHM.</span></figcaption>
+  <figcaption>
+    <div class="hero-media-credit"><span>KASAG</span><span>ONE ROOM. YOUR OWN ISLAND RHYTHM.</span></div>
+    <div class="hero-media-actions">
+      <a href="${kasagVideo}" data-expand-video>Expand video</a>
+      <a class="photo-link" href="/images/full/bedroom.webp" data-photo-viewer
+        data-caption="KASAG’s wooden bed, fresh linens, and green leaf wall hanging">View full photo</a>
+    </div>
+  </figcaption>
 </figure>`;
 export const arrow = '<svg class="arrow-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M5 19 19 5M5 5h14v14"/></svg>';
 const paths: Record<string, string> = {
@@ -65,25 +75,67 @@ export function renderLanding(app: HTMLElement) {
 export function startHeroVideo(): void {
   const video = document.querySelector<HTMLVideoElement>('.hero-video');
   if (!video) return;
-  const artwork = video.closest('.hero-art');
+  const artwork = video.closest('.hero-art')!;
+  const expand = artwork.querySelector<HTMLAnchorElement>('[data-expand-video]')!;
   const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
+  let nearViewport = !('IntersectionObserver' in window);
+  let viewer: HTMLDialogElement | undefined;
   const showVideo = () => {
-    if (!reducedMotion.matches) artwork?.classList.add('is-video-ready');
+    if (!reducedMotion.matches) artwork.classList.add('is-video-ready');
   };
   video.addEventListener('playing', showVideo);
-  video.addEventListener('error', () => artwork?.classList.remove('is-video-ready'));
+  video.addEventListener('error', () => artwork.classList.remove('is-video-ready'));
   const applyMotionPreference = () => {
-    video.autoplay = !reducedMotion.matches;
+    if (viewer?.open || !nearViewport) return;
     if (reducedMotion.matches) {
       video.pause();
-      artwork?.classList.remove('is-video-ready');
+      artwork.classList.remove('is-video-ready');
       return;
     }
-    if (!video.hasAttribute('src')) video.src = video.dataset.source!;
-    void video.play().catch(() => artwork?.classList.remove('is-video-ready'));
+    if (!video.hasAttribute('src')) video.src = kasagVideo;
+    void video.play().catch(() => artwork.classList.remove('is-video-ready'));
   };
+  if (!nearViewport) {
+    const observer = new IntersectionObserver(entries => {
+      if (!entries.some(entry => entry.isIntersecting)) return;
+      observer.disconnect();
+      nearViewport = true;
+      applyMotionPreference();
+    }, { rootMargin: '160px' });
+    observer.observe(video);
+  }
   reducedMotion.addEventListener('change', applyMotionPreference);
   applyMotionPreference();
+
+  if (typeof HTMLDialogElement === 'undefined') return;
+  expand.setAttribute('aria-haspopup', 'dialog');
+  expand.addEventListener('click', event => {
+    if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    event.preventDefault();
+    const dialog = document.createElement('dialog');
+    viewer = dialog;
+    dialog.className = 'hero-video-viewer';
+    dialog.setAttribute('aria-labelledby', 'kasag-viewer-title');
+    dialog.innerHTML = `<div class="hero-viewer-heading"><h2 id="kasag-viewer-title">KASAG room tour</h2>
+      <button type="button" autofocus>Close</button></div>
+      <video src="${kasagVideo}" poster="${kasagPoster}" aria-label="${kasagVideoDescription}" preload="metadata" controls muted playsinline loop></video>`;
+    const expanded = dialog.querySelector('video')!;
+    const wasPlaying = !video.paused;
+    video.pause();
+    expanded.currentTime = video.currentTime;
+    document.body.append(dialog);
+    dialog.querySelector('button')!.addEventListener('click', () => dialog.close());
+    dialog.addEventListener('close', () => {
+      expanded.pause();
+      if (video.readyState && expanded.readyState) video.currentTime = expanded.currentTime;
+      dialog.remove();
+      viewer = undefined;
+      applyMotionPreference();
+      expand.focus({ preventScroll: true });
+    }, { once: true });
+    dialog.showModal();
+    if (wasPlaying && !reducedMotion.matches) void expanded.play().catch(() => {});
+  });
 }
 
 export function startMotion() {

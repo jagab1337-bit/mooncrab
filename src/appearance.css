@@ -46,7 +46,6 @@
 [data-theme=dark] .cta-section { background:#3a2b23;color:#f3e8d7; }
 [data-theme=dark] .cta-section :is(.eyebrow,p) { color:#cbb9a9; }
 [data-theme=dark] .cta-section h2 em { color:#b2c5b2; }
-[data-theme=dark] .hero-art figcaption { color:#f3e8d7; }
 [data-theme=dark] .workspace-stat { background:var(--surface-muted); }
 [data-theme=dark] .workspace-error-text, [data-theme=dark] .owner-status-error { color:#ffc3b5; }
 [data-theme=dark] .workspace-table thead, [data-theme=dark] .owner-requests-heading { background:var(--surface-muted); }

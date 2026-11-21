@@ -95,24 +95,45 @@ img { max-width: 100%; }
 .hero-actions { display: flex; align-items: center; gap: 24px; margin-top: 28px; }
 .hero-note { display: flex; align-items: center; gap: 12px; margin-top: 25px; font: 12px var(--mono); color: var(--muted); }
 .hero-note>span { width: 28px; height: 1px; background: var(--sand); }
+/* The matte and caption sit outside the video so the complete portrait frame is visible. */
 .hero-art {
-  position: relative; height: 490px; overflow: hidden; border-radius: 100px 3px 3px 3px;
-  background: var(--surface-muted) url('/images/bedroom.webp') center 56% / cover no-repeat;
+  width: min(100%, clamp(302px, 22vw + 55px, 390px));
+  justify-self: center;
+  padding: 12px 12px 10px;
+  border: 1px solid var(--line);
+  border-radius: 30px 8px 8px;
+  background: var(--surface-alt);
 }
-.hero-video { position: relative; width: 100%; height: 100%; display: block; object-fit: contain; opacity: 0; }
-.hero-art.is-video-ready::before {
-  content: ''; position: absolute; inset: -20px; background: inherit;
-  filter: blur(20px) brightness(.66); pointer-events: none;
+.hero-video-frame { position: relative; aspect-ratio: 9 / 16; background: var(--surface-muted); }
+.hero-video-poster, .hero-video {
+  position: absolute; inset: 0; display: block; width: 100%; height: 100%; object-fit: contain;
 }
+.hero-video { opacity: 0; }
 .hero-art.is-video-ready .hero-video { opacity: 1; }
-.hero-media-actions { position: absolute; inset: 14px 14px auto auto; display: flex; gap: 8px; }
-.hero-media-actions .hero-media-control {
-  min-height: 36px; padding: 0 10px; display: inline-flex; align-items: center; border-radius: 3px;
-  color: #fffaf3; background: #39241ce8; border: 1px solid #fff9; font: 12px/1 Arial,sans-serif;
+.hero-art figcaption { padding: 8px 2px 0; }
+.hero-media-credit { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.hero-media-credit>span:first-child { font: 500 28px/1.2 var(--serif); letter-spacing: 2px; }
+.hero-media-credit>span:last-child { max-width: 160px; text-align: right; color: var(--muted); font: 10px/1.5 var(--mono); letter-spacing: 1px; }
+.hero-media-actions { display: flex; flex-wrap: wrap; gap: 6px 16px; border-top: 1px solid var(--line); margin-top: 8px; }
+.hero-media-actions a { display: inline-flex; align-items: center; min-height: 40px; font-size: 12px; text-decoration: underline; text-underline-offset: 4px; }
+.hero-media-actions a:focus-visible { outline-offset: 2px; }
+.hero-video-viewer {
+  width: min(94vw, calc((100dvh - 98px) * .5625 + 24px));
+  max-height: 96dvh;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  color: var(--cocoa);
+  background: var(--surface-alt);
 }
-.hero-art figcaption { position: absolute; inset: auto 0 0; padding: 18px 22px; display: flex; align-items: center; justify-content: space-between; gap: 20px; color: var(--cream); background: linear-gradient(transparent,#472f29b3); }
-.hero-art figcaption>span:first-child { font: 500 29px var(--serif); letter-spacing: 2px; }
-.hero-art figcaption>span:last-child { max-width: 190px; text-align: right; font: 10px/1.6 var(--mono); letter-spacing: 1.6px; }
+.hero-video-viewer::backdrop { background: #211915d9; }
+.hero-viewer-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 8px; }
+.hero-viewer-heading h2 { font-size: clamp(21px, 4vw, 28px); }
+.hero-viewer-heading button {
+  min-height: 36px; padding-inline: 9px; border: 1px solid var(--line); border-radius: 4px;
+  color: var(--cocoa); background: var(--surface-input); font-size: 12px;
+}
+.hero-video-viewer video { display: block; width: 100%; aspect-ratio: 9 / 16; max-height: calc(100dvh - 98px); object-fit: contain; background: #211915; }
 .stay-facts { display: grid; grid-template-columns: repeat(4,1fr); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); padding-block: 22px; gap: 20px; }
 .stay-facts>div { display: flex; align-items: center; gap: 14px; }
 .stay-facts>div:not(:first-child) { border-left: 1px solid var(--line); padding-left: 22px; }
@@ -292,8 +313,8 @@ img { max-width: 100%; }
   .day:not(:disabled):not(.selected):hover { border-color: var(--sage); }
 }
 @media(min-width:1051px) {
-  .hero { grid-template-columns:minmax(0,.85fr) minmax(0,1.15fr); }
-  .hero-art { height:clamp(490px,34vw,760px); }
+  .hero { max-width: 1160px; grid-template-columns: minmax(0,1.2fr) minmax(0,1fr); }
+  .hero-art { width: min(100%, clamp(345px, 29vw, 390px)); }
   .pickup-photo { min-height:clamp(345px,25vw,580px); }
   .pickup-copy { align-self:center; }
   .location-map { height:clamp(390px,27vw,620px); }
@@ -314,7 +335,6 @@ img { max-width: 100%; }
   .header nav { gap: 18px; font-size: 11px; }
   .hero { gap: 4%; }
   .hero h1 { font-size: 72px; }
-  .hero-art { height: 460px; }
   .hero-description { font-size: 13px; }
   .hero-actions { gap: 18px; }
   .hero-actions .button { padding-inline: 17px; gap: 18px; }
@@ -346,10 +366,7 @@ img { max-width: 100%; }
   .hero-description br { display: none; }
   .hero .eyebrow { font-size: 10px; }
   .hero-actions { flex-direction: column; align-items: start; gap: 14px; margin-top: 20px; }
-  .hero-art { height: 425px; border-top-left-radius: 75px; }
   .hero-note { font-size: 10px; margin-top: 19px; }
-  .hero-art figcaption { padding: 16px; }
-  .hero-art figcaption>span:last-child { font-size: 8px; max-width: 120px; }
   .stay-facts { grid-template-columns: 1fr 1fr; gap: 20px; }
   .stay-facts>div:not(:first-child) { border: 0; padding-left: 0; }
   .stay-facts strong { font-size: 12px; }
@@ -417,9 +434,7 @@ img { max-width: 100%; }
   .hero-actions .button { font-size: 12px; padding: 13px 18px; min-height: 45px; }
   .hero-actions .under-link { font-size: 12px; gap: 10px; }
   .hero-note { margin-top: 19px; font-size: 11px; }
-  .hero-art { height: 350px; border-radius: 60px 3px 3px 3px; }
-  .hero-art figcaption { padding: 16px 18px; }
-  .hero-art figcaption>span:last-child { max-width: 180px; font-size: 8px; }
+  .hero-art { width: min(100%, 380px); border-radius: 22px 8px 8px; padding: 8px 8px 6px; }
   .stay-facts { gap: 19px 10px; padding-block: 20px; }
   .stay-facts>div { gap: 10px; }
   .stay-facts .line-icon { width: 22px; height: 25px; }
