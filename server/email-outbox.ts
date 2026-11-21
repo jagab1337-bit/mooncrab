@@ -1,6 +1,5 @@
 import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
 import nodemailer from 'nodemailer';
-import { inlineMoonCrabLogo } from './email-brand.ts';
 import { authorizeAdmin, sameOrigin } from './admin-auth.ts';
 import { configured, createRedisCommand, manilaDate, setHeaders, unavailable } from './availability.ts';
 import type { ApiRequest, ApiResponse, Environment, HandlerOptions, RedisCommand } from './availability.ts';
@@ -207,7 +206,7 @@ function smtpSender(env: Environment): EmailSender {
     connectionTimeout: 5000, greetingTimeout: 5000, socketTimeout: 10000,
   });
   return async message => {
-    const info = await transport.sendMail({ ...message, ...inlineMoonCrabLogo(message.html) });
+    const info = await transport.sendMail(message);
     return { accepted: info.accepted || [], rejected: info.rejected || [], messageId: info.messageId };
   };
 }
@@ -439,21 +438,26 @@ export function createEmailOutboxHandler(options: EmailOptions = {}) {
           if (typeof contentType !== 'string' || contentType.split(';')[0] !== 'application/json') {
             res.status(415).json({ error: 'Send an application/json request.' }); return;
           }
-          const body = req.body as { action?: unknown; settings?: unknown; workflow?: unknown } | undefined;
+          const body = req.body as { action?: unknown; settings?: unknown; workflow?: unknown; testRecipients?: unknown } | undefined;
           if (body?.action === 'save') {
             const next = parseNotificationSettings(body.settings);
             if (!next) { res.status(400).json({ error: `Enter up to ${MAX_RECIPIENTS} valid email addresses. Owner alerts require at least one address when enabled.` }); return; }
             settings = next;
             await command(['SET', NOTIFICATION_SETTINGS_KEY, JSON.stringify({ ...settings, recipient: settings.recipients[0] ?? '' })]);
           } else if (body?.action === 'test') {
-            if (!settings.recipients.length || !smtp.configured) { res.status(409).json({ error: smtp.reason || 'Save a recipient address first.' }); return; }
+            const testSettings = body.testRecipients === undefined ? settings
+              : parseNotificationSettings({ enabled: true, recipients: body.testRecipients });
+            if (!testSettings) { res.status(400).json({ error: `Enter up to ${MAX_RECIPIENTS} valid test addresses.` }); return; }
+            if (!testSettings.recipients.length || !smtp.configured) { res.status(409).json({ error: smtp.reason || 'Save a recipient address first.' }); return; }
+            const preview = typeof body.workflow === 'string' && body.workflow !== 'test' ? await previewEmail({ ...req, query:{ preview:body.workflow } }, command) : null;
+            if (body.workflow !== undefined && body.workflow !== 'test' && !preview) { res.status(400).json({ error: 'Choose a valid email workflow.' }); return; }
             const claim = await command(['SET', 'mooncrab:notification-test-lock', '1', 'NX', 'EX', 60]);
             if (claim !== 'OK') { res.status(429).json({ error: 'Wait one minute before sending another test.' }); return; }
             const id = randomUUID();
-            const preview = typeof body.workflow === 'string' && body.workflow !== 'test' ? await previewEmail({ ...req, query:{ preview:body.workflow } }, command) : null;
-            const message = preview ? { ...preview, subject:`[TEST] ${preview.subject}` } : notificationTestEmail();
+            const template = preview ?? notificationTestEmail();
+            const message = { ...template, subject: `[TEST] ${template.subject}` };
             const send = options.send ?? smtpSender(env);
-            const results = await Promise.all(settings.recipients.map((to, index) => sendEmail(send, {
+            const results = await Promise.all(testSettings.recipients.map((to, index) => sendEmail(send, {
               from: `Moon Crab Bookings <${EMAIL_CONTACTS.bookings}>`, to, ...message,
               messageId: `<test.${id}.${index}@mooncrabsiargao.com>`,
             })));

@@ -6,9 +6,8 @@ test('both reusable signature previews render without embedded frames at phone w
   await expect(page.locator('iframe')).toHaveCount(0);
   await expect(page.locator('.signature-preview').first()).toContainText('greetings@mooncrabsiargao.com');
   const signature = page.locator('.signature-preview').first();
-  await expect(signature.getByRole('link', {name:'Cancellation policy for new direct bookings'}))
+  await expect(signature.getByRole('link', {name:'Current direct booking policy'}))
     .toHaveAttribute('href', 'https://mooncrabsiargao.com/booking#booking-policy-title');
-  await expect(signature).toContainText('7–13 days before check-in for a 50% refund');
   const whatsapp = signature.getByRole('link', {name:'Chat on WhatsApp', exact:true});
   await expect(whatsapp).toHaveAttribute('href', 'https://wa.me/639625284264');
   await expect(whatsapp).toHaveCSS('background-color', 'rgb(71, 47, 41)');

@@ -1,15 +1,16 @@
 export const DIRECT_POLICY = {
-  version: '2026-11-21',
+  version: '2026-11-22',
   depositPercent: 50,
-  deposit: 'A 50% deposit is required to secure your reservation.',
-  cancellation: 'Cancel 14 days or more before check-in for a full refund of the amount paid. Cancel 7–13 days before check-in for a 50% refund of the amount paid. Cancellations fewer than 7 days before check-in are not refundable.',
-  agreement: 'I have read and agree to Moon Crab Siargao’s booking and cancellation policy.',
+  deposit: 'A 50% deposit is required to secure your reservation and is non-refundable.',
+  cancellation: 'Same-day cancellations are not allowed.',
+  agreement: 'I have read and agree to Moon Crab Siargao’s booking, cancellation, and non-refundable deposit policies.',
 } as const;
 
 export const PREVIOUS_DIRECT_POLICY_VERSION = '2026-11-19';
+export const SCHEDULED_REFUND_POLICY_VERSION = '2026-11-21';
 
 export function hasRecordedDirectPolicy(version?: string): boolean {
-  return version === DIRECT_POLICY.version || version === PREVIOUS_DIRECT_POLICY_VERSION;
+  return version === DIRECT_POLICY.version || version === PREVIOUS_DIRECT_POLICY_VERSION || version === SCHEDULED_REFUND_POLICY_VERSION;
 }
 
 export interface BookingAgreement {

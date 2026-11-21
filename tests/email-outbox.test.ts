@@ -2,7 +2,6 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import nodemailer from 'nodemailer';
-import { inlineMoonCrabLogo } from '../server/email-brand.ts';
 import {
   CLAIM_EMAIL_SCRIPT, EMAIL_JOB_PREFIX, EMAIL_OUTBOX_INDEX, EMAIL_PENDING_KEY,
   ENQUEUE_EMAILS_SCRIPT, FINISH_EMAIL_SCRIPT, RETRY_EMAIL_SCRIPT, NOTIFICATION_SETTINGS_KEY,
@@ -10,10 +9,10 @@ import {
   smtpReadiness, prepareEmailJob, processReservationEmail,
 } from '../server/email-outbox.ts';
 import type { EmailJob, EmailSender } from '../server/email-outbox.ts';
-import { bookingEmail, firstName } from '../server/email-templates.ts';
+import { bookingEmail, firstName, notificationTestEmail } from '../server/email-templates.ts';
 import type { EmailBooking } from '../server/email-templates.ts';
 import type { Environment, RedisCommand } from '../server/availability.ts';
-import { DIRECT_POLICY, PREVIOUS_DIRECT_POLICY_VERSION } from '../shared/booking-terms.ts';
+import { DIRECT_POLICY, PREVIOUS_DIRECT_POLICY_VERSION, SCHEDULED_REFUND_POLICY_VERSION } from '../shared/booking-terms.ts';
 
 const id = '242c4998-09a4-4876-bd8d-e3bdc5cd1195';
 const fixedNow = new Date('2026-11-18T00:00:00Z');
@@ -134,7 +133,8 @@ test('confirmation distinguishes required deposit, verified payments and the out
   assert.match(unpaid.text, /Remaining balance: ₱8,000/);
   assert.match(unpaid.html, /Booking and Cancellation Policy for This Reservation/);
   assert.ok(unpaid.text.includes(DIRECT_POLICY.cancellation));
-  assert.doesNotMatch(unpaid.html, /non-refundable|Same-day cancellations/);
+  assert.match(unpaid.html, /non-refundable/);
+  assert.doesNotMatch(unpaid.text, /14 days|7–13 days/);
   assert.match(unpaid.html, /Chat With Us on WhatsApp/);
   assert.ok(unpaid.text.includes(id));
   assertPublishedSignature(unpaid);
@@ -151,7 +151,13 @@ test('confirmation distinguishes required deposit, verified payments and the out
     agreement: { ...booking.agreement!, version: PREVIOUS_DIRECT_POLICY_VERSION },
   }, 'confirmation');
   assert.match(previous.text, /Booking and Cancellation Policy for This Reservation\n.*non-refundable\.\nSame-day cancellations/);
-  assert.match(previous.text, /Cancellation policy for new direct bookings\nCancel 14 days or more/);
+  assert.doesNotMatch(previous.text, /14 days or more/);
+  const scheduledRefund = bookingEmail({
+    ...booking,
+    agreement: { ...booking.agreement!, version: SCHEDULED_REFUND_POLICY_VERSION },
+  }, 'confirmation');
+  assert.match(scheduledRefund.text, /Booking and Cancellation Policy for This Reservation\n.*\nCancel 14 days or more/);
+  assert.doesNotMatch(scheduledRefund.text, /Same-day cancellations|non-refundable/);
   assert.throws(() => bookingEmail({ ...booking, status: 'pending' }, 'confirmation'));
   assert.throws(() => bookingEmail({ ...booking, source: 'Airbnb' }, 'confirmation'));
 });
@@ -191,18 +197,28 @@ test('a cancelled direct stay sends one branded notice without promising a refun
   assert.throws(() => bookingEmail({ ...booking, source: 'Booking.com' }, 'cancellation'));
 });
 
-test('SMTP message carries the Moon Crab logo inline for the header and signature', async () => {
-  const email = bookingEmail({ ...record, status: 'cancelled' }, 'cancellation');
-  const options = inlineMoonCrabLogo(email.html);
-  const [{ cid }] = options.attachments;
-  assert.equal(options.html.split(`src="cid:${cid}"`).length - 1, 2);
-  assert.doesNotMatch(options.html, /mooncrab-logo-email-solid\.png|mooncrab-logo-solid\.png/);
+test('all outgoing designs send HTML and plain text using the same public PNG and no attachments', async () => {
+  const confirmed = { ...record, status: 'confirmed', payment: { totalCents: 800_000, receivedCents: null } };
+  const samples = [
+    bookingEmail(record, 'guest'),
+    bookingEmail(record, 'owner'),
+    bookingEmail(confirmed, 'confirmation'),
+    bookingEmail({ ...confirmed, manual: true, source: 'WhatsApp' }, 'confirmation'),
+    bookingEmail({ ...record, status: 'declined' }, 'decline'),
+    bookingEmail({ ...record, status: 'cancelled' }, 'cancellation'),
+    notificationTestEmail(),
+  ];
   const smtp = nodemailer.createTransport({ streamTransport: true, buffer: true });
-  const { message } = await smtp.sendMail({ from: 'bookings@mooncrabsiargao.com', to: 'guest@example.com', ...email, ...options });
-  const mime = message.toString().replace(/\r\n[ \t]+/g, ' ');
-  assert.ok(mime.includes(`Content-ID: <${cid}>`));
-  assert.match(mime, /multipart\/related/);
-  assert.match(mime, /Content-Disposition: inline/);
+  for (const sample of samples) {
+    assertPublishedSignature(sample);
+    assert.equal(sample.html.match(/src="https:\/\/mooncrabsiargao\.com\/email-signature\/mooncrab-logo-solid\.png"/g)?.length, 2);
+    const { message } = await smtp.sendMail({ from: 'bookings@mooncrabsiargao.com', to: 'guest@example.com', ...sample });
+    const mime = message.toString();
+    assert.match(mime, /multipart\/alternative/);
+    assert.match(mime, /Content-Type: text\/plain/);
+    assert.match(mime, /Content-Type: text\/html/);
+    assert.doesNotMatch(mime, /multipart\/(related|mixed)|Content-ID:|Content-Disposition:|cid:/);
+  }
 });
 
 test('idempotent enqueue creates exactly two jobs, and missing SMTP never touches the store while processing', async () => {
@@ -357,6 +373,15 @@ test('notification settings preserve a legacy address and send tests only to the
   assert.equal(tested.code, 200);
   assert.equal((tested.body as { lastTest: { status: string } }).lastTest.status, 'accepted');
   assert.deepEqual(messages.map(message => message.to), recipients);
+  const invalidTest = response();
+  await handler({ method: 'POST', headers, query, body: { action: 'test', testRecipients: ['invalid'] } }, invalidTest);
+  assert.equal(invalidTest.code, 400);
+  const oneOff = response();
+  await handler({ method: 'POST', headers, query, body: { action: 'test', workflow: 'manual', testRecipients: ['audit@example.com'] } }, oneOff);
+  assert.equal(oneOff.code, 200);
+  assert.deepEqual(messages.slice(2).map(({ to }) => to), ['audit@example.com']);
+  assert.match(messages[2].subject, /^\[TEST\].*Booking Is Confirmed/);
+  assert.deepEqual(JSON.parse(values.get(NOTIFICATION_SETTINGS_KEY)!).recipients, recipients);
   assert.equal(messages[0].from, 'Moon Crab Bookings <bookings@mooncrabsiargao.com>');
   assertPublishedSignature(messages[0]);
 });

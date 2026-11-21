@@ -13,7 +13,7 @@ The cocoa **Chat on WhatsApp** button is the primary contact. The outlined Faceb
 
 ### Spacemail — greetings@mooncrabsiargao.com
 
-Sign in to Spacemail Webmail for greetings@mooncrabsiargao.com. Open **Settings → Signature → Manage signatures → + New signature**. Name it Mooncrab, paste the rendered signature with its formatting, then select the tick to make it the default. Check the saved notification and send yourself a test. The connected Spacemail tools cannot edit mailbox signatures; this package does not claim that your mailbox settings have changed.
+Sign in to Spacemail Webmail for greetings@mooncrabsiargao.com. Open **Settings → Signature → Manage signatures → + New signature**. Name it Mooncrab, paste the rendered signature with its formatting, then select the tick to make it the default. When composing with bookings@ as your From alias, select the same signature if it is not inserted automatically. If bookings@ has its own mailbox, install the same signature there and make it the default. Send separate tests from both From addresses and check the received logo, QR codes, and contact buttons. The connected Spacemail tools cannot edit mailbox signatures; this package does not claim that your mailbox settings have changed.
 
 Official guide: https://www.spaceship.com/en-GB/knowledgebase/create-email-signature-spacemail/
 

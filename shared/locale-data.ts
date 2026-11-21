@@ -1,4 +1,4 @@
-import { DIRECT_POLICY, PREVIOUS_DIRECT_POLICY_VERSION } from './booking-terms.ts';
+import { DIRECT_POLICY, SCHEDULED_REFUND_POLICY_VERSION } from './booking-terms.ts';
 
 const keys = ['room','perks','explore','location','details','book','promo','apply','remove','invalid','applied','discount','total','arrival','departure','name','email','request','policy'] as const;
 export type LocaleKey = typeof keys[number];
@@ -29,8 +29,8 @@ const rows: Record<string, [string, string]> = {
 export const locales=Object.entries(rows).map(([code,[name]])=>({code,name}));
 export function translation(locale:string,key:LocaleKey) {return (rows[locale]??rows.en)[1].split('|')[keys.indexOf(key)];}
 
-const previousBookingPolicies:Record<string,[string,string,string]> = {
-  en: ['A 50% deposit is required to secure your reservation and is non-refundable.','Same-day cancellations are not allowed.','I have read and agree to Moon Crab Siargao’s booking, cancellation, and non-refundable deposit policies.'],
+const bookingPolicies:Record<string,[string,string,string]> = {
+  en: [DIRECT_POLICY.deposit, DIRECT_POLICY.cancellation, DIRECT_POLICY.agreement],
   fil: ['Kailangan ang 50% na deposito upang matiyak ang iyong reserbasyon. Hindi ito maibabalik.','Hindi pinapayagan ang pagkansela sa mismong araw.','Nabasa ko at sinasang-ayunan ko ang mga patakaran ng Moon Crab Siargao sa reserbasyon, pagkansela, at hindi maibabalik na deposito.'],
   ceb: ['Kinahanglan ang 50% nga deposito aron masiguro ang imong reserbasyon. Dili kini mauli.','Dili tugotan ang pagkansela sa samang adlaw.','Nabasa ug giuyonan nako ang mga patakaran sa Moon Crab Siargao bahin sa reserbasyon, pagkansela, ug deposito nga dili mauli.'],
   es: ['Se requiere un depósito no reembolsable del 50 % para asegurar tu reserva.','No se permiten cancelaciones en el mismo día.','He leído y acepto las políticas de reserva, cancelación y depósito no reembolsable de Moon Crab Siargao.'],
@@ -53,12 +53,12 @@ const previousBookingPolicies:Record<string,[string,string,string]> = {
 };
 export function isLocale(value:unknown):value is string {return typeof value==='string'&&Object.hasOwn(rows,value);}
 export function localizedPolicy(locale: string, version: string = DIRECT_POLICY.version) {
-  const policies = version === PREVIOUS_DIRECT_POLICY_VERSION ? previousBookingPolicies : bookingPolicies;
+  const policies = version === SCHEDULED_REFUND_POLICY_VERSION ? scheduledRefundPolicies : bookingPolicies;
   return policies[locale] ?? policies.en;
 }
 
-const bookingPolicies: Record<string, [string, string, string]> = {
-  en: [DIRECT_POLICY.deposit, DIRECT_POLICY.cancellation, DIRECT_POLICY.agreement],
+const scheduledRefundPolicies: Record<string, [string, string, string]> = {
+  en: ['A 50% deposit is required to secure your reservation.', 'Cancel 14 days or more before check-in for a full refund of the amount paid. Cancel 7–13 days before check-in for a 50% refund of the amount paid. Cancellations fewer than 7 days before check-in are not refundable.', 'I have read and agree to Moon Crab Siargao’s booking and cancellation policy.'],
   fil: ['Kailangan ang 50% na deposito upang matiyak ang reserbasyon.', 'Buong halagang binayaran ang ibabalik kung magkakansela 14 na araw o higit pa bago ang check-in. Kung 7–13 araw bago ang check-in, 50% ang ibabalik. Kung mas mababa sa 7 araw, walang refund.', 'Nabasa ko at sinasang-ayunan ko ang patakaran ng Moon Crab Siargao sa reserbasyon at pagkansela.'],
   ceb: ['Kinahanglan ang 50% nga deposito aron masiguro ang reserbasyon.', 'Kung magkansela 14 ka adlaw o labaw pa sa dili pa ang check-in, mauli ang tibuok gibayad. Kung 7–13 ka adlaw, 50% sa gibayad ang mauli. Kung ubos sa 7 ka adlaw, walay refund.', 'Nabasa ug giuyonan nako ang patakaran sa Moon Crab Siargao sa reserbasyon ug pagkansela.'],
   es: ['Se requiere un depósito del 50 % para asegurar la reserva.', 'Si cancelas 14 días o más antes de la llegada, recibirás un reembolso completo del importe pagado. Si cancelas entre 7 y 13 días antes, se reembolsa el 50 %. Con menos de 7 días de antelación, no hay reembolso.', 'He leído y acepto la política de reservas y cancelaciones de Moon Crab Siargao.'],

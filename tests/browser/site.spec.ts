@@ -91,9 +91,8 @@ test('sends a pending request with actual selected dates, not a confirmed bookin
   const policy = page.getByRole('checkbox', {name:/I have read and agree to Moon Crab/});
   await expect(policy).not.toBeChecked();
   const policyDetails = page.getByRole('region', {name:'Booking & Cancellation Policy'});
-  await expect(policyDetails).toContainText('14 days or more before check-in for a full refund');
-  await expect(policyDetails).toContainText('7–13 days before check-in for a 50% refund');
-  await expect(policyDetails).toContainText('fewer than 7 days before check-in are not refundable');
+  await expect(policyDetails).toContainText('is non-refundable');
+  await expect(policyDetails).toContainText('Same-day cancellations are not allowed.');
   await page.getByRole('button', { name: 'Request this stay' }).click();
   expect(payload).toEqual({});
   await policy.check();
