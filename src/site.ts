@@ -6,6 +6,16 @@ import { renderReviews } from './guest-reviews.ts';
 import { renderRoomCarousel } from './room-carousel.ts';
 export const home = '/';
 export const book = '/booking';
+const kasagHero = `<figure class="hero-art">
+  <video class="hero-video" data-source="/videos/kasag-tour.mp4" poster="/images/bedroom.webp" preload="none" muted playsinline
+    aria-label="A tour of Moon Crab Siargao, from the entrance to the KASAG bedroom and shared kitchen"></video>
+  <div class="hero-media-actions">
+    <button class="hero-media-control" type="button" data-hero-playback hidden>Play video</button>
+    <a class="photo-link hero-media-control" href="/images/full/bedroom.webp" data-photo-viewer
+      data-caption="KASAG’s wooden bed, fresh linens, and green leaf wall hanging">View full photo</a>
+  </div>
+  <figcaption><span>KASAG</span><span>ONE ROOM. YOUR OWN ISLAND RHYTHM.</span></figcaption>
+</figure>`;
 export const arrow = '<svg class="arrow-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M5 19 19 5M5 5h14v14"/></svg>';
 const paths: Record<string, string> = {
   bath: '<path d="M4 12h16v4a4 4 0 0 1-4 4H8a4 4 0 0 1-4-4Zm2 8-1 2m13-2 1 2M5 12V5a3 3 0 0 1 6 0v1m-2 2h4"/>',
@@ -37,7 +47,7 @@ const mapEmbed = 'https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d3931.687
 
 export function renderLanding(app: HTMLElement) {
   app.innerHTML = `${header()}<main id="main">
-    <section class="hero wrap"><div class="hero-copy"><p class="eyebrow">YOUR LITTLE CORNER OF SIARGAO</p><h1>Find your<br>island <em>rhythm.</em></h1><p class="hero-description">A warm room. A quiet address. The island on your doorstep.<br> Thoughtful comfort in General Luna, at a down-to-earth rate.</p><div class="hero-actions"><a class="button" href="${book}">Find your dates ${arrow}</a><a class="under-link" href="#kasag">Meet KASAG <span aria-hidden="true">↓</span></a></div><div class="hero-note"><span></span>For two, with room for one more.</div></div><figure class="hero-art"><img src="/images/bedroom.webp" alt="KASAG’s wooden bed, fresh linens, and green leaf wall hanging" fetchpriority="high" width="1086" height="1448"><figcaption><span>KASAG</span><span>ONE ROOM. YOUR OWN ISLAND RHYTHM.</span></figcaption></figure></section>
+    <section class="hero wrap"><div class="hero-copy"><p class="eyebrow">YOUR LITTLE CORNER OF SIARGAO</p><h1>Find your<br>island <em>rhythm.</em></h1><p class="hero-description">A warm room. A quiet address. The island on your doorstep.<br> Thoughtful comfort in General Luna, at a down-to-earth rate.</p><div class="hero-actions"><a class="button" href="${book}">Find your dates ${arrow}</a><a class="under-link" href="#kasag">Meet KASAG <span aria-hidden="true">↓</span></a></div><div class="hero-note"><span></span>For two, with room for one more.</div></div>${kasagHero}</section>
     <div class="stay-facts wrap" aria-label="Stay at a glance"><div>${icon('people')}<span><strong>2 guests included</strong><small>3rd guest +₱500 / night</small></span></div><div>${icon('clock')}<span><strong>Check-in · 2:00 PM</strong><small>Check-out · 11:00 AM</small></span></div><div>${icon('bath')}<span><strong>Private en suite</strong><small>With a hot shower</small></span></div><div>${icon('kitchen')}<span><strong>Shared kitchen</strong><small>Right beside your room</small></span></div></div>
 
     <section class="section room-section" id="kasag"><div class="wrap"><div class="section-top"><div><p class="eyebrow">OUR ONE & ONLY ROOM</p><h2>Meet <em>KASAG.</em></h2></div><p>A little place to settle in.<br>A good base for everything outside.</p></div><div class="room-grid">${renderRoomCarousel()}<div class="room-copy"><p class="room-lead">Made for two.<br>Welcoming one more.</p><p>KASAG is our cosy room for two guests, with an en suite bathroom, a hot shower, and a shared kitchen just next door. Comfortable, simple, and full of little Mooncrab details.</p><div class="occupancy-note"><strong>Bringing a third guest?</strong><span>We can accommodate one additional guest for <b>₱500 per night</b>. Maximum occupancy: 3 guests.</span></div><ul class="room-amenities"><li>${icon('bath')}<span>En suite bathroom & hot shower</span></li><li>${icon('kitchen')}<span>Shared kitchen beside KASAG</span></li><li>${icon('clock')}<span>2:00 PM check-in · 11:00 AM check-out</span></li></ul><div class="published-rates"><div><strong data-rate="nightlyPhp">₱1,300</strong><small>per night</small></div><div><strong data-rate="weeklyPhp">₱8,000</strong><small>7-night package</small></div><div><strong data-rate="monthlyPhp">₱30,000</strong><small>30-night package</small></div></div><div class="monthly-inclusions"><strong>Monthly stays include</strong>Electricity, water, Wi-Fi, weekly housekeeping, a private en-suite bathroom with hot shower, and a private kitchen.</div><div class="room-booking-note"><span>Stay a little longer.</span><p>Minimum 2 nights. See an estimate for your dates, then agree the total with your host.</p></div><a class="text-link" href="${book}">See KASAG’s available dates ${arrow}</a></div></div></div></section>
@@ -51,6 +61,44 @@ export function renderLanding(app: HTMLElement) {
     ${renderReviews()}${renderSocial()}
     <section class="cta-section"><div class="wrap cta-inner"><div><p class="eyebrow">A SMALL STAY. A BEAUTIFUL ISLAND.</p><h2>Make a little room<br><em>for Siargao.</em></h2></div><div><p>Start with your dates.<br>We’ll help with the rest.</p><a class="button button-light" href="${book}">Let’s find your dates ${arrow}</a>${renderChannelLinks()}</div></div></section>
   </main>${footer()}`;
+}
+
+export function startHeroVideo(): void {
+  const video = document.querySelector<HTMLVideoElement>('.hero-video');
+  const control = document.querySelector<HTMLButtonElement>('[data-hero-playback]');
+  if (!video || !control) return;
+  const artwork = video.closest('.hero-art');
+  const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
+  const sync = () => {
+    control.textContent = video.ended ? 'Replay video' : video.paused ? 'Play video' : 'Pause video';
+  };
+  const play = () => {
+    if (!video.hasAttribute('src')) video.src = video.dataset.source!;
+    void video.play().catch(sync);
+  };
+  control.hidden = false;
+  video.muted = true;
+  for (const event of ['play', 'pause', 'ended']) video.addEventListener(event, sync);
+  const showVideo = () => artwork?.classList.add('is-video-ready');
+  video.addEventListener('loadeddata', showVideo);
+  video.addEventListener('playing', showVideo);
+  video.addEventListener('error', () => {
+    artwork?.classList.remove('is-video-ready');
+    video.hidden = true;
+    control.hidden = true;
+  });
+  control.addEventListener('click', () => {
+    if (video.paused) play();
+    else video.pause();
+  });
+  reducedMotion.addEventListener('change', event => {
+    video.autoplay = false;
+    if (event.matches) video.pause();
+  });
+  if (!reducedMotion.matches) {
+    video.autoplay = true;
+    play();
+  }
 }
 
 export function startMotion() {

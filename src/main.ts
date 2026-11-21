@@ -11,7 +11,7 @@ import { startExploreCarousel } from './explore-carousel.ts';
 import { startRoomCarousel } from './room-carousel.ts';
 import { getPublicConfig, hydrateContacts } from './business.ts';
 import { DIRECT_POLICY } from '../shared/booking-terms.ts';
-import { arrow, book, header, footer, home, icon, renderLanding, startMotion } from './site.ts';
+import { arrow, book, header, footer, home, icon, renderLanding, startHeroVideo, startMotion } from './site.ts';
 
 import { startAnalytics, track } from './analytics.ts';
 import { currentLanguage, mountAppearance } from './appearance.ts';
@@ -201,6 +201,7 @@ if (ownerPath === '/booking' && location.hash === '#booking-policy-title') {
   document.getElementById('booking-policy-title')?.scrollIntoView();
 }
 startMotion();
+startHeroVideo();
 startPhotoViewer();
 mountGuestReviews();
 startExploreCarousel();

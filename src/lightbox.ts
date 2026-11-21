@@ -34,10 +34,10 @@ export function startPhotoViewer(): void {
   let photos: Photo[] = [];
   const eligible = 'main a[data-photo-viewer]';
   document.querySelectorAll<HTMLAnchorElement>(eligible).forEach(link => {
-    const image = link.querySelector('img');
-    if (!image) return;
+    const caption = link.dataset.caption || link.querySelector('img')?.alt;
+    if (!caption) return;
     link.setAttribute('aria-haspopup', 'dialog');
-    link.setAttribute('aria-label', `View full photo: ${image.alt}`);
+    link.setAttribute('aria-label', `View full photo: ${caption}`);
   });
   if (!document.querySelector(eligible) && !document.querySelector('[data-review-results]')) return;
 
@@ -79,10 +79,10 @@ export function startPhotoViewer(): void {
     const group = link.closest('[data-review-results]') ? '[data-review-results] a[data-photo-viewer]' : `${eligible}:not([data-review-results] a)`;
     const sources = new Set<string>();
     photos = [...document.querySelectorAll<HTMLAnchorElement>(group)].flatMap(anchor => {
-      const img = anchor.querySelector('img');
-      if (!img || sources.has(anchor.href)) return [];
+      const caption = anchor.dataset.caption || anchor.querySelector('img')?.alt;
+      if (!caption || sources.has(anchor.href)) return [];
       sources.add(anchor.href);
-      return [{ link: anchor, source: anchor.href, caption: anchor.dataset.caption || img.alt }];
+      return [{ link: anchor, source: anchor.href, caption }];
     });
     const index = photos.findIndex(photo => photo.source === link.href);
     if (index < 0) return;
