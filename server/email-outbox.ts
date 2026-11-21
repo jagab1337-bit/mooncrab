@@ -1,5 +1,6 @@
 import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
 import nodemailer from 'nodemailer';
+import { inlineMoonCrabLogo } from './email-brand.ts';
 import { authorizeAdmin, sameOrigin } from './admin-auth.ts';
 import { configured, createRedisCommand, manilaDate, setHeaders, unavailable } from './availability.ts';
 import type { ApiRequest, ApiResponse, Environment, HandlerOptions, RedisCommand } from './availability.ts';
@@ -46,7 +47,7 @@ async function readNotificationSettings(command: RedisCommand): Promise<Notifica
 
 const MAX_ATTEMPTS = 3;
 export const CLAIM_MILLISECONDS = 90_000;
-const JOB_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}:(guest|owner|confirmation|decline)$/i;
+const JOB_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}:(guest|owner|confirmation|decline|cancellation)$/i;
 
 export type EmailState = 'queued' | 'sending' | 'accepted' | 'failed' | 'unknown' | 'suppressed';
 export interface EmailJob {
@@ -104,16 +105,17 @@ if job.status == 'sending' then
   return nil
 end
 if job.status ~= 'queued' or tonumber(job.attempts) >= tonumber(ARGV[6]) then return nil end
-if job.kind == 'confirmation' or job.kind == 'decline' or job.kind == 'guest' then
+if job.kind == 'confirmation' or job.kind == 'decline' or job.kind == 'cancellation' or job.kind == 'guest' then
   local current = redis.call('GET', KEYS[3])
   local booking = current and cjson.decode(current) or nil
   local invalidConfirmation = job.kind == 'confirmation' and (not booking or booking.status ~= 'confirmed')
   local invalidDecline = job.kind == 'decline' and (not booking or booking.status ~= 'declined' or booking.manual)
+  local invalidCancellation = job.kind == 'cancellation' and (not booking or booking.status ~= 'cancelled')
   local staleAcknowledgment = job.kind == 'guest' and booking and booking.status ~= 'pending'
   local workflow = job.kind
   if workflow == 'confirmation' and job.booking.manual then workflow = 'manual' end
   local disabled = redis.call('HGET', KEYS[4], workflow) == 'off' and not job.deliberate
-  if invalidConfirmation or invalidDecline or staleAcknowledgment or disabled then
+  if invalidConfirmation or invalidDecline or invalidCancellation or staleAcknowledgment or disabled then
     job.status = 'suppressed'; job.lastError = 'The reservation status changed before email submission.'
     if disabled then job.lastError = 'This automation was disabled before email submission.' end
     job.updatedAt = ARGV[3]
@@ -158,7 +160,7 @@ local booking = redis.call('GET', KEYS[3])
 if not raw or not booking then return 'not_found' end
 local job = cjson.decode(raw)
 local status = cjson.decode(booking).status
-local eligible = (job.kind == 'confirmation' and status == 'confirmed') or (job.kind == 'decline' and status == 'declined')
+local eligible = (job.kind == 'confirmation' and status == 'confirmed') or (job.kind == 'decline' and status == 'declined') or (job.kind == 'cancellation' and status == 'cancelled')
 if not eligible or job.status ~= 'accepted' or (job.delivery or 0) ~= tonumber(ARGV[3]) then return 'unsafe' end
 job.status = 'queued'; job.updatedAt = ARGV[2]; job.delivery = (job.delivery or 0) + 1
 job.deliberate = true
@@ -205,7 +207,7 @@ function smtpSender(env: Environment): EmailSender {
     connectionTimeout: 5000, greetingTimeout: 5000, socketTimeout: 10000,
   });
   return async message => {
-    const info = await transport.sendMail(message);
+    const info = await transport.sendMail({ ...message, ...inlineMoonCrabLogo(message.html) });
     return { accepted: info.accepted || [], rejected: info.rejected || [], messageId: info.messageId };
   };
 }
@@ -213,7 +215,7 @@ function smtpSender(env: Environment): EmailSender {
 function safeJob(value: unknown): EmailJob {
   if (typeof value !== 'string') throw new Error('Invalid outbox record');
   const job = JSON.parse(value) as EmailJob;
-  if (!job || !JOB_ID.test(job.id) || job.id !== `${job.bookingId}:${job.kind}` || !['guest', 'owner', 'confirmation', 'decline'].includes(job.kind) || !['queued', 'sending', 'accepted', 'failed', 'unknown', 'suppressed'].includes(job.status)
+  if (!job || !JOB_ID.test(job.id) || job.id !== `${job.bookingId}:${job.kind}` || !['guest', 'owner', 'confirmation', 'decline', 'cancellation'].includes(job.kind) || !['queued', 'sending', 'accepted', 'failed', 'unknown', 'suppressed'].includes(job.status)
     || typeof job.attempts !== 'number' || !job.booking || job.booking.id !== job.bookingId || typeof job.booking.email !== 'string'
     || typeof job.expiresAtUnix !== 'number') throw new Error('Invalid outbox record');
   return job;
@@ -301,7 +303,7 @@ export async function processConfirmationEmail(bookingId: string, options: Email
   return processReservationEmail(bookingId, 'confirmation', options);
 }
 
-export async function processReservationEmail(bookingId: string, kind: 'confirmation' | 'decline', options: EmailOptions): Promise<string> {
+export async function processReservationEmail(bookingId: string, kind: 'confirmation' | 'decline' | 'cancellation', options: EmailOptions): Promise<string> {
   try {
     if (!smtpReadiness(options.env ?? process.env).configured) return 'queued';
     const result = await processJob(`${bookingId}:${kind}`, options);
@@ -324,14 +326,15 @@ function emailSummary(job: EmailJob) {
   };
 }
 
-function emailKind(value: unknown): value is 'confirmation' | 'decline' {
-  return value === 'confirmation' || value === 'decline';
+function emailKind(value: unknown): value is 'confirmation' | 'decline' | 'cancellation' {
+  return value === 'confirmation' || value === 'decline' || value === 'cancellation';
 }
 
-function eligibleBooking(kind: 'confirmation' | 'decline', booking: EmailBooking): boolean {
+function eligibleBooking(kind: 'confirmation' | 'decline' | 'cancellation', booking: EmailBooking): boolean {
   if (!booking.email || externalSource(booking.source)) return false;
-  return kind === 'decline' ? booking.status === 'declined' && !booking.manual
-    : booking.status === 'confirmed' && !!readStoredPayment(booking.payment) && (!booking.manual || hasRecordedDirectPolicy(booking.agreement?.version));
+  if (kind === 'cancellation') return booking.status === 'cancelled';
+  if (kind === 'decline') return booking.status === 'declined' && !booking.manual;
+  return booking.status === 'confirmed' && !!readStoredPayment(booking.payment) && (!booking.manual || hasRecordedDirectPolicy(booking.agreement?.version));
 }
 
 async function previewEmail(req: ApiRequest, command: RedisCommand) {
@@ -345,7 +348,7 @@ async function previewEmail(req: ApiRequest, command: RedisCommand) {
   if (id && typeof raw !== 'string') return null;
   const booking: EmailBooking = typeof raw === 'string' ? JSON.parse(raw) : {
     id: 'Preview only', name: 'Sample guest', email: 'guest@example.invalid', checkIn:'2030-01-15', checkOut:'2030-01-17',
-    guests:2, message:'', status: kind === 'confirmation' ? 'confirmed' : kind === 'decline' ? 'declined' : 'pending',
+    guests:2, message:'', status: kind === 'confirmation' ? 'confirmed' : kind === 'decline' ? 'declined' : kind === 'cancellation' ? 'cancelled' : 'pending',
     createdAt:'2030-01-01T00:00:00Z', payment:{totalCents:800000,receivedCents:null},
     agreement:{version:DIRECT_POLICY.version,acceptedAt:'2030-01-01T00:00:00Z',recordedBy:'guest'},
   };
@@ -468,7 +471,7 @@ export function createEmailOutboxHandler(options: EmailOptions = {}) {
           if (!ids.length || ids.length > 50 || ids.some(id => !JOB_ID.test(id))) {
             res.status(400).json({ error: 'Provide up to 50 booking identifiers.' }); return;
           }
-          const found = await command(['MGET', ...ids.flatMap(id => ['guest', 'owner', 'confirmation', 'decline'].map(kind => EMAIL_JOB_PREFIX + id.replace(/:owner$/, `:${kind}`)))]);
+          const found = await command(['MGET', ...ids.flatMap(id => ['guest', 'owner', 'confirmation', 'decline', 'cancellation'].map(kind => EMAIL_JOB_PREFIX + id.replace(/:owner$/, `:${kind}`)))]);
           if (!Array.isArray(found)) throw new Error('Invalid outbox lookup');
           rows = found;
         } else {
@@ -494,7 +497,7 @@ export function createEmailOutboxHandler(options: EmailOptions = {}) {
       }
       if (body?.action === 'send-booking' && typeof body.id === 'string' && JOB_ID.test(body.id)) {
         const [id, kind] = body.id.split(':');
-        if (!emailKind(kind)) { res.status(400).json({error:'Choose a confirmation or decline email.'}); return; }
+        if (!emailKind(kind)) { res.status(400).json({error:'Choose a confirmation, decline, or cancellation email.'}); return; }
         const raw = await command(['GET', BOOKING_RECORD_PREFIX + id]);
         if (typeof raw !== 'string') { res.status(404).json({error:'Booking not found.'}); return; }
         const booking = JSON.parse(raw) as EmailBooking;
@@ -516,7 +519,7 @@ export function createEmailOutboxHandler(options: EmailOptions = {}) {
       }
       if (body?.action === 'resend' && typeof body.id === 'string' && JOB_ID.test(body.id) && Number.isSafeInteger(body.delivery)) {
         const [id, kind] = body.id.split(':');
-        if (!emailKind(kind)) { res.status(400).json({error:'Choose a confirmation or decline email.'}); return; }
+        if (!emailKind(kind)) { res.status(400).json({error:'Choose a confirmation, decline, or cancellation email.'}); return; }
         const started = (options.now ?? (() => new Date()))();
         const result = await command(['EVAL', RESEND_CONFIRMATION_SCRIPT, 3, EMAIL_JOB_PREFIX + body.id, EMAIL_PENDING_KEY,
           BOOKING_RECORD_PREFIX + body.id.split(':')[0], started.getTime(), started.toISOString(), body.delivery as number]);

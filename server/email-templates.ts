@@ -139,9 +139,23 @@ function declinedEmail(booking: EmailBooking, contacts: TemplateContacts) {
   return signedEmail(subject, html, text, contacts);
 }
 
+function cancelledEmail(booking: EmailBooking, contacts: TemplateContacts) {
+  if (booking.status !== 'cancelled' || externalSource(booking.source)) throw new Error('A cancelled direct reservation is required.');
+  const subject = 'Your Moon Crab Siargao Stay Has Been Cancelled';
+  const greeting = `Hi ${firstName(booking.name)},`;
+  const intro = 'This email confirms that your reservation at Moon Crab Siargao has been cancelled.';
+  const refund = 'If you made a payment, please contact us on WhatsApp about any refund under the terms for your reservation.';
+  const facebook = facebookContact(contacts.facebook);
+  const html = `<h1 style="font-family:Georgia,serif;font-size:30px;line-height:1.2;">Your stay has been cancelled</h1><p>${escapeHtml(greeting)}</p><p>${intro}</p>${summary(booking, false, [['Status', 'Cancelled']])}<p>${refund}</p><p>${button('Chat With Us on WhatsApp', contacts.whatsapp, true)}<br>${button(facebook.label, facebook.href)}</p>`;
+  const text = [greeting, intro, `Reference: ${booking.id}\nRoom: ${booking.room || 'KASAG'}\nCheck-in: ${date(booking.checkIn)}\nCheck-out: ${date(booking.checkOut)}`, refund,
+    `WhatsApp: ${contacts.whatsapp}`, `${facebook.label}: ${facebook.href}`].join('\n\n');
+  return signedEmail(subject, html, text, contacts);
+}
+
 export function bookingEmail(booking: EmailBooking, kind: BookingEmailKind, contacts: TemplateContacts = EMAIL_CONTACTS): { subject: string; html: string; text: string } {
   if (kind === 'confirmation') return confirmedEmail(booking, contacts);
   if (kind === 'decline') return declinedEmail(booking, contacts);
+  if (kind === 'cancellation') return cancelledEmail(booking, contacts);
   const owner = kind === 'owner';
   const policy = directPolicy(booking,owner);
   const facebook = facebookContact(contacts.facebook);

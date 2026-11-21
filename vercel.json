@@ -4,8 +4,8 @@
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
   "functions": {
-    "api/**/booking-requests.ts": { "includeFiles": "public/email-signature/mooncrab-email-signature.{html,txt}" },
-    "api/admin/email-outbox.ts": { "includeFiles": "public/email-signature/mooncrab-email-signature.{html,txt}" }
+    "api/**/booking-requests.ts": { "includeFiles": "public/{email-signature/mooncrab-email-signature.html,email-signature/mooncrab-email-signature.txt,images/mooncrab-logo-email-solid.png}" },
+    "api/admin/email-outbox.ts": { "includeFiles": "public/{email-signature/mooncrab-email-signature.html,email-signature/mooncrab-email-signature.txt,images/mooncrab-logo-email-solid.png}" }
   },
   "redirects": [
     { "source": "/", "has": [{ "type": "host", "value": "booking.mooncrabsiargao.com" }], "destination": "https://mooncrabsiargao.com/booking", "permanent": true },

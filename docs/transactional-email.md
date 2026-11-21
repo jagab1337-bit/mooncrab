@@ -46,7 +46,9 @@ SMTP and Redis cannot guarantee exactly-once inbox delivery. An execution may st
 
 ## Business signature in Spacemail Webmail
 
-Booking acknowledgments, official confirmations, owner notifications, and the dashboard test append the standard HTML and plain-text signatures from `public/email-signature/`. The HTML keeps the logo and the booking and WhatsApp QR codes. Its main **Chat on WhatsApp** button sits above the outlined Facebook, Instagram, and website buttons. The website and the Spacemail copy tool use the same source files. Edits made in Spacemail Webmail apply to messages composed there.
+Booking acknowledgments, confirmations, declines, cancellations, owner notifications, and the dashboard test append the standard HTML and plain-text signatures from `public/email-signature/`. SMTP embeds the logo in the message header and signature. The signature links to the booking and WhatsApp QR images. Edits made in Spacemail Webmail apply to messages composed there.
+
+Cancelling a confirmed direct stay with a guest email queues a cancellation notice. Manage the workflow under **Email Automations → Booking cancellation**. For Airbnb or Booking.com stays, send any cancellation communication through that platform.
 
 To apply the provided signature to `greetings@mooncrabsiargao.com`:
 

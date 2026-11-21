@@ -569,23 +569,24 @@ export async function renderManage(container: HTMLElement): Promise<void> {
     card.querySelector('[data-booking-confirmation]')?.remove();
     const related = communications.get(booking.id) ?? [];
     const declined = booking.status === 'declined' && !booking.manual;
-    const job = declined ? related.find(entry => entry.kind === 'decline') : confirmations.get(booking.id);
+    const cancelled = booking.status === 'cancelled' && !externalSource(booking.source);
+    const kind = cancelled ? 'cancellation' : declined ? 'decline' : 'confirmation';
+    const job = kind === 'confirmation' ? confirmations.get(booking.id) : related.find(entry => entry.kind === kind);
     if (!job && !declined && booking.status !== 'confirmed' && !related.length) return;
     const row = document.createElement('div');
     row.dataset.bookingConfirmation = '';
     row.className = 'owner-booking-mail';
     const status = document.createElement('p');
-    const kind = declined ? 'decline' : 'confirmation';
-    const label = declined ? 'Decline' : 'Confirmation';
+    const label = cancelled ? 'Cancellation' : declined ? 'Decline' : 'Confirmation';
     status.textContent = `${label} email · ${job ? emailStatus[job.status] ?? job.status : 'No retained submission'}`;
     row.append(status);
-    const eligible = declined || (booking.status === 'confirmed' && booking.payment && booking.checkOut > today && !externalSource(booking.source) && (!booking.manual || hasRecordedDirectPolicy(booking.agreement?.version)));
+    const eligible = (cancelled && !!job) || declined || (booking.status === 'confirmed' && booking.payment && booking.checkOut > today && !externalSource(booking.source) && (!booking.manual || hasRecordedDirectPolicy(booking.agreement?.version)));
     if (eligible && booking.email) {
       const preview = document.createElement('button'); preview.type='button'; preview.textContent='Preview Booking Email';
-      preview.onclick = () => { void import('./admin-email.ts').then(({previewBookingEmail})=>previewBookingEmail(adminFetch, declined ? 'decline' : booking.manual ? 'manual' : 'confirmation', booking.id)).catch(error=>showError(status,error)); };
+      preview.onclick = () => { void import('./admin-email.ts').then(({previewBookingEmail})=>previewBookingEmail(adminFetch, kind === 'confirmation' && booking.manual ? 'manual' : kind, booking.id)).catch(error=>showError(status,error)); };
       row.append(preview);
       if (!job || job.status === 'suppressed') {
-        const send = document.createElement('button'); send.type='button'; send.textContent=`Send Booking ${declined ? 'Decline Email' : 'Confirmation'}`;
+        const send = document.createElement('button'); send.type='button'; send.textContent=`Send Booking ${kind === 'confirmation' ? 'Confirmation' : label + ' Email'}`;
         send.onclick=async()=>{
           if (!window.confirm(`Send this ${kind} to ${booking.email}?`)) return;
           send.disabled=true;
@@ -600,17 +601,17 @@ export async function renderManage(container: HTMLElement): Promise<void> {
       history.textContent = `To ${job.recipient ?? booking.email} · ${job.lastAttempt ? `Last attempt ${emailTime(job.lastAttempt)}` : 'No attempt recorded'}${job.acceptedAt ? ` · Accepted ${emailTime(job.acceptedAt)}` : ''}`;
       row.append(history);
       if (job.lastError) { const error = document.createElement('p'); error.textContent = job.lastError; row.append(error); }
-      if (eligible && (job.safeToRetry || job.status === 'accepted' || (job.status === 'queued' && !declined))) {
+      if (eligible && (job.safeToRetry || job.status === 'accepted' || (job.status === 'queued' && kind === 'confirmation'))) {
         const resend = job.status === 'accepted';
         const queued = job.status === 'queued';
         const button = document.createElement('button');
-        button.type = 'button'; button.textContent = resend ? `Resend ${label}${declined ? ' Email' : ''}` : queued ? 'Submit Queued Confirmation' : `Retry ${label}`;
+        button.type = 'button'; button.textContent = resend ? `Resend ${label}${kind === 'confirmation' ? '' : ' Email'}` : queued ? 'Submit Queued Confirmation' : `Retry ${label}`;
         button.onclick = async () => {
           if (!window.confirm(`Submit this ${kind} to ${booking.email}?`)) return;
           button.disabled = true;
           try {
             const result = await adminFetch('/api/admin/email-outbox', 'POST', { action: resend ? 'resend' : queued ? 'submit-confirmation' : 'retry', id: job.id, delivery: job.delivery });
-            requestsStatus.textContent = emailStatus[String(result.state)] ?? 'Check the confirmation email status below.';
+            requestsStatus.textContent = emailStatus[String(result.state)] ?? 'Check the email status below.';
             await loadRequestNotifications();
           } catch (error) { showError(status, error); button.disabled = false; }
         };
@@ -795,14 +796,18 @@ export async function renderManage(container: HTMLElement): Promise<void> {
         card.append(payments);
         const note = document.createElement('p');
         note.className = 'owner-request-cancel-note';
-        note.textContent = 'Cancelling reopens only this stay’s nights. Any manually blocked dates remain blocked. Notify the guest directly; this action does not send an email.';
+        const provider = externalSource(booking.source);
+        note.textContent = 'Cancelling releases this stay’s calendar block. Other blocks still apply. ' + (provider
+          ? 'Handle guest notification and any platform changes through the booking channel.'
+          : booking.email ? 'The Booking cancellation automation emails the guest when enabled.'
+            : 'Contact the guest directly to confirm cancellation.');
         const agreement = document.createElement('label');
         agreement.className = 'owner-request-agreement';
         const agreed = document.createElement('input');
         agreed.type = 'checkbox';
         agreed.disabled = requestsBusy;
         const agreementLabel = document.createElement('span');
-        agreementLabel.textContent = 'Cancellation agreed with the guest and guest notified directly';
+        agreementLabel.textContent = 'Cancellation agreed with the guest';
         agreement.append(agreed, agreementLabel);
         const cancel = document.createElement('button');
         cancel.type = 'button';
@@ -965,7 +970,10 @@ export async function renderManage(container: HTMLElement): Promise<void> {
   async function actOnRequest(id: string, action: 'confirm' | 'decline' | 'cancel' | 'payment' | 'adjust-price', extra: Record<string, unknown> = {}): Promise<void> {
     await saveBookingChange('PATCH', { id, action, ...extra }, 'Updating reservation…', result => {
       if (action === 'confirm') return `Stay confirmed and dates blocked.${confirmationResult(result)}`;
-      if (action === 'cancel') return 'Stay cancelled. Any dates still blocked by a calendar or manual block remain unavailable.';
+      if (action === 'cancel') {
+        const email = result.cancellationEmail;
+        return `Stay cancelled. Any dates still blocked by a calendar or manual block remain unavailable.${email ? ` Cancellation email: ${emailStatus[String(email)] ?? 'Check Email Automations'}.` : ''}`;
+      }
       if (action === 'adjust-price') return 'Adjusted quote saved. Review the new total with the guest before confirming.';
       return action === 'payment' ? 'Payment details saved.' : `Request declined.${result.declineEmail ? ` ${emailStatus[String(result.declineEmail)] ?? 'Check email status in the booking.'}.` : ''}`;
     });

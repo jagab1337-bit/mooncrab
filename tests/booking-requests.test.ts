@@ -341,7 +341,25 @@ test('owner can atomically cancel a confirmed stay without changing request expi
   const res = response();
   await handler(adminRequest({ method: 'PATCH', body: { id, action: 'cancel' } }), res);
   assert.equal(res.code, 200);
-  assert.deepEqual(res.body, { request: cancelled });
+  assert.deepEqual(res.body, { request: cancelled, cancellationEmail: 'queued' });
   assert.equal(commands[1][18], 'cancel');
   assert.equal(commands[1][21], requestExpiry(record.checkOut));
+  const job = JSON.parse(String(commands[1][23]));
+  assert.equal(job.id, `${id}:cancellation`);
+  assert.equal(job.booking.status, 'cancelled');
+  assert.equal(job.booking.email, record.email);
+});
+
+test('cancelling a confirmed platform booking queues no direct cancellation email', async () => {
+  const confirmed = { ...record, status: 'confirmed', manual: true, source: 'Airbnb' };
+  const cancelled = { ...confirmed, status: 'cancelled' };
+  const handler = createAdminBookingRequestsHandler({ env, now, command: async (args) => {
+    if (args[0] === 'GET') return JSON.stringify(confirmed);
+    assert.equal(args[23], '');
+    return ['updated', JSON.stringify(cancelled)];
+  } });
+  const res = response();
+  await handler(adminRequest({ method: 'PATCH', body: { id, action: 'cancel' } }), res);
+  assert.equal(res.code, 200);
+  assert.deepEqual(res.body, { request: cancelled });
 });

@@ -1,11 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import nodemailer from 'nodemailer';
+import { inlineMoonCrabLogo } from '../server/email-brand.ts';
 import {
   CLAIM_EMAIL_SCRIPT, EMAIL_JOB_PREFIX, EMAIL_OUTBOX_INDEX, EMAIL_PENDING_KEY,
   ENQUEUE_EMAILS_SCRIPT, FINISH_EMAIL_SCRIPT, RETRY_EMAIL_SCRIPT, NOTIFICATION_SETTINGS_KEY,
   createEmailOutboxHandler, drainEmailOutbox, enqueueBookingEmails, processBookingEmails,
-  smtpReadiness,
+  smtpReadiness, prepareEmailJob, processReservationEmail,
 } from '../server/email-outbox.ts';
 import type { EmailJob, EmailSender } from '../server/email-outbox.ts';
 import { bookingEmail, firstName } from '../server/email-templates.ts';
@@ -164,6 +166,43 @@ test('SMTP remains blocked until an authorized bookings@ sender is explicitly ve
   assert.equal(smtpReadiness({ ...env, SMTP_FROM: 'other@example.com' }).configured, false);
   assert.equal(smtpReadiness({ ...env, SMTP_PORT: '25' }).configured, false);
   assert.equal(smtpReadiness(env).configured, true);
+});
+
+test('a cancelled direct stay sends one branded notice without promising a refund', async () => {
+  const booking = { ...record, status: 'cancelled' };
+  const memory = store();
+  const job = prepareEmailJob(booking, 'cancellation', fixedNow);
+  memory.values.set(EMAIL_JOB_PREFIX + job.id, JSON.stringify(job));
+  const messages: Parameters<EmailSender>[0][] = [];
+  const options = { env, command: memory.command, now: () => fixedNow, send: async (message: Parameters<EmailSender>[0]) => {
+    messages.push(message);
+    return { accepted: [message.to], messageId: message.messageId };
+  } };
+  assert.equal(await processReservationEmail(id, 'cancellation', options), 'accepted');
+  assert.equal(await processReservationEmail(id, 'cancellation', options), 'accepted');
+  assert.equal(messages.length, 1);
+  const [message] = messages;
+  assert.equal(message.to, record.email);
+  assert.match(message.subject, /Stay Has Been Cancelled/);
+  assert.ok(message.text.includes(id));
+  assert.match(message.text, /contact us on WhatsApp about any refund/);
+  assertPublishedSignature(message);
+  assert.throws(() => bookingEmail({ ...booking, status: 'confirmed' }, 'cancellation'));
+  assert.throws(() => bookingEmail({ ...booking, source: 'Booking.com' }, 'cancellation'));
+});
+
+test('SMTP message carries the Moon Crab logo inline for the header and signature', async () => {
+  const email = bookingEmail({ ...record, status: 'cancelled' }, 'cancellation');
+  const options = inlineMoonCrabLogo(email.html);
+  const [{ cid }] = options.attachments;
+  assert.equal(options.html.split(`src="cid:${cid}"`).length - 1, 2);
+  assert.doesNotMatch(options.html, /mooncrab-logo-email-solid\.png|mooncrab-logo-solid\.png/);
+  const smtp = nodemailer.createTransport({ streamTransport: true, buffer: true });
+  const { message } = await smtp.sendMail({ from: 'bookings@mooncrabsiargao.com', to: 'guest@example.com', ...email, ...options });
+  const mime = message.toString().replace(/\r\n[ \t]+/g, ' ');
+  assert.ok(mime.includes(`Content-ID: <${cid}>`));
+  assert.match(mime, /multipart\/related/);
+  assert.match(mime, /Content-Disposition: inline/);
 });
 
 test('idempotent enqueue creates exactly two jobs, and missing SMTP never touches the store while processing', async () => {

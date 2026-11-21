@@ -150,7 +150,7 @@ test('owner cancellation requires guest agreement and sends the intended action'
   const booking = () => ({ id: 'c9dc880a-c70d-4a90-bcd2-b509728bd0f5', checkIn: date(10), checkOut: date(12), name: '<script>guest</script>', email: 'guest@example.com', message: '<img src=x onerror=alert(1)>', status: current });
   await page.route('**/api/admin/availability', route => route.fulfill({ json: { initialized: true, blockedDates: current === 'confirmed' ? [date(10), date(11)] : [] } }));
   await page.route('**/api/admin/booking-requests*', async route => {
-    if (route.request().method() === 'PATCH') { action = route.request().postDataJSON(); current = 'cancelled'; await route.fulfill({ json: { request: booking() } }); }
+    if (route.request().method() === 'PATCH') { action = route.request().postDataJSON(); current = 'cancelled'; await route.fulfill({ json: { request: booking(), cancellationEmail: 'queued' } }); }
     else await route.fulfill({ json: { requests: [booking()] } });
   });
   await page.route('**/api/admin/session', route => route.fulfill({ json: { authenticated: false } }));
@@ -166,9 +166,10 @@ test('owner cancellation requires guest agreement and sends the intended action'
   await expect(page.locator('#owner-requests-list')).toContainText('<script>guest</script>');
   await expect(page.locator('.owner-request-guests')).toHaveText('2 guests · No extra guest fee');
   expect(await page.locator('#owner-requests-list script, #owner-requests-list img').count()).toBe(0);
-  await page.getByLabel('Cancellation agreed with the guest and guest notified directly').check();
+  await page.getByLabel('Cancellation agreed with the guest').check();
   await cancel.click();
   await expect(page.locator('#owner-requests-status')).toContainText('Stay cancelled');
+  await expect(page.locator('#owner-requests-status')).toContainText('Cancellation email: Queued for Spacemail');
   expect(action).toEqual({ id: booking().id, action: 'cancel' });
   await expect(page.locator('.owner-request-status')).toHaveText('cancelled');
 });

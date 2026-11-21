@@ -293,6 +293,7 @@ elseif ARGV[1] == 'cancel' then
     end
   end
   record.status = 'cancelled'
+  if ARGV[6] ~= '' then enqueueEmail(cjson.decode(ARGV[6]), 'mooncrab:email-job:', KEYS[6], KEYS[7], ARGV[7]) end
 elseif ARGV[1] == 'decline' then
   record.status = 'declined'
   if ARGV[11] ~= '' then record.declineReason = ARGV[11] end
@@ -559,6 +560,7 @@ export function createAdminBookingRequestsHandler(options: EmailOptions = {}) {
       }
       const sendEmail = body.action === 'confirm' && !provider && (!record.manual || body.sendEmail === true);
       const declineEmail = body.action === 'decline' && !record.manual && EMAIL.test(record.email);
+      const cancellationEmail = body.action === 'cancel' && record.status === 'confirmed' && !provider && EMAIL.test(record.email);
       const declineReason = body.action === 'decline' && typeof body.reason === 'string' ? body.reason.trim() : '';
       if (declineReason.length > 600 || /[\u0000-\u0008\u000b\u000c\u000e-\u001f]/.test(declineReason)) {
         res.status(400).json({error:'Enter a decline reason of up to 600 characters.'}); return;
@@ -572,7 +574,8 @@ export function createAdminBookingRequestsHandler(options: EmailOptions = {}) {
       const nights = stayNights(record.checkIn, record.checkOut);
       if (!nights.length || nights.length > 90) { unavailable(res); return; }
       const emailJob = sendEmail ? confirmationJob({ ...record, payment }, at) : declineEmail
-        ? JSON.stringify(prepareEmailJob({...record,status:'declined',declineReason},'decline',at)) : '';
+        ? JSON.stringify(prepareEmailJob({...record,status:'declined',declineReason},'decline',at))
+        : cancellationEmail ? JSON.stringify(prepareEmailJob({ ...record, status: 'cancelled' }, 'cancellation', at)) : '';
       const result = resultArray(await command([
         'EVAL', ACTION_REQUEST_SCRIPT, 15, key, BLOCKED_KEY, CONFIRMED_KEY, INITIALIZED_KEY, IMPORTED_KEY, EMAIL_OUTBOX_INDEX, EMAIL_PENDING_KEY,
         ...IMPORT_SNAPSHOTS, CONFIRMED_SOURCES_KEY, `${EMAIL_JOB_PREFIX}${record.id}:confirmation`,
@@ -586,7 +589,9 @@ export function createAdminBookingRequestsHandler(options: EmailOptions = {}) {
           const saved = safeRecord(result[1]);
           const confirmationEmail = sendEmail ? await processConfirmationEmail(saved.id, emailOptions) : undefined;
           const declineSubmission = declineEmail ? await processReservationEmail(saved.id,'decline',emailOptions) : undefined;
-          res.status(200).json({ request: saved, ...(sendEmail ? { confirmationEmail } : {}), ...(declineEmail ? { declineEmail:declineSubmission } : {}) }); return;
+          const cancellationSubmission = cancellationEmail ? await processReservationEmail(saved.id, 'cancellation', emailOptions) : undefined;
+          res.status(200).json({ request: saved, ...(sendEmail ? { confirmationEmail } : {}), ...(declineEmail ? { declineEmail:declineSubmission } : {}),
+            ...(cancellationEmail ? { cancellationEmail: cancellationSubmission } : {}) }); return;
         }
         case 'not_found': res.status(404).json({ error: 'Request not found.' }); return;
         case 'conflict': res.status(409).json({ error: 'Those dates are already blocked. Contact the guest before choosing another stay.' }); return;

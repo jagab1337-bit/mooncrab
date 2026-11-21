@@ -94,7 +94,7 @@ export async function renderEmailAutomations(container: HTMLElement, request: Ad
         <tbody role="rowgroup">${rows.slice(from, to).map(({job,current,...row}) => {
           const label = EMAIL_WORKFLOWS[job.workflow]?.name;
           const action = current && job.safeToRetry ? 'Retry'
-            : current && job.status === 'accepted' && ['confirmation','decline'].includes(job.kind) ? 'Resend' : '';
+            : current && job.status === 'accepted' && ['confirmation','decline','cancellation'].includes(job.kind) ? 'Resend' : '';
           return `<tr role="row">
             <td class="email-activity-summary" role="cell"><strong>${escape(row.subject || label)}</strong>
               <small>${row.subject ? `${escape(label)} · ` : ''}<a href="/admin#request-${encodeURIComponent(job.bookingId)}" title="${escape(job.bookingId)}">Booking ${escape(job.bookingId.slice(0,8))}</a></small></td>

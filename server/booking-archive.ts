@@ -50,7 +50,7 @@ for _,id in ipairs(ids) do
   if ARGV[2]=='archive' and (not archived or not archived.active) then
     redis.call('HSET',KEYS[1],id,cjson.encode({active=true,at=ARGV[3],date=ARGV[5]}))
     redis.call('PERSIST',ARGV[4]..id)
-    for _,kind in ipairs({'guest','owner','confirmation','decline'}) do redis.call('PERSIST','mooncrab:email-job:'..id..':'..kind) end
+    for _,kind in ipairs({'guest','owner','confirmation','decline','cancellation'}) do redis.call('PERSIST','mooncrab:email-job:'..id..':'..kind) end
   elseif ARGV[2]=='restore' and archived and archived.active then
     archived.active=false; archived.restoredAt=ARGV[3]
     redis.call('HSET',KEYS[1],id,cjson.encode(archived))
