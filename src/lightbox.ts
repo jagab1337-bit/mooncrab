@@ -7,7 +7,7 @@ type Photo = { link: HTMLAnchorElement; source: string; caption: string };
 /** Enhance the real property photos while retaining a direct full-image link. */
 export function startPhotoViewer(): void {
   if (document.querySelector('.photo-viewer')) return;
-  const photos: Photo[] = [];
+
   document.querySelectorAll<HTMLImageElement>('main img').forEach(image => {
     const name = image.getAttribute('src')?.match(/^\/images\/([\w-]+)\.webp$/)?.[1];
     if (!name || !photoNames.has(name) || image.closest('a, button')) return;
@@ -29,20 +29,17 @@ export function startPhotoViewer(): void {
     hint.setAttribute('aria-hidden', 'true');
     hint.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M9 3H3v6m12-6h6v6M3 15v6h6m12-6v6h-6"/></svg><span>View full photo</span>';
     link.append(hint);
-    photos.push({ link, source: link.href, caption: image.alt });
+    link.dataset.photoViewer = '';
   });
-  document.querySelectorAll<HTMLAnchorElement>('main a[data-photo-viewer]').forEach(link => {
-    const image = link.querySelector<HTMLImageElement>('img');
+  let photos: Photo[] = [];
+  const eligible = 'main a[data-photo-viewer]';
+  document.querySelectorAll<HTMLAnchorElement>(eligible).forEach(link => {
+    const image = link.querySelector('img');
     if (!image) return;
     link.setAttribute('aria-haspopup', 'dialog');
     link.setAttribute('aria-label', `View full photo: ${image.alt}`);
-    photos.push({ link, source: link.href, caption: link.dataset.caption || image.alt });
   });
-  if (!photos.length) return;
-  photos.sort((a,b)=>a.link.compareDocumentPosition(b.link)&Node.DOCUMENT_POSITION_FOLLOWING?-1:1);
-  const triggers = [...photos];
-  const unique = photos.filter((photo, index) => photos.findIndex(other => other.source === photo.source) === index);
-  photos.splice(0, photos.length, ...unique);
+  if (!document.querySelector(eligible) && !document.querySelector('[data-review-results]')) return;
 
   const dialog = document.createElement('dialog');
   dialog.className = 'photo-viewer';
@@ -75,16 +72,25 @@ export function startPhotoViewer(): void {
 
   image.addEventListener('load', () => { status.textContent = ''; });
   image.addEventListener('error', () => { status.textContent = 'This photo could not load. You can try opening the full image below.'; });
-  triggers.forEach(photo => {
-    const index = photos.findIndex(other => other.source === photo.source);
-    photo.link.addEventListener('click', event => {
-      if (event.ctrlKey || event.metaKey || event.shiftKey || event.altKey || event.button !== 0) return;
-      event.preventDefault();
-      opener = photo.link;
-      show(index);
-      dialog.showModal();
-      document.documentElement.classList.add('photo-viewer-open');
+  document.addEventListener('click', event => {
+    if (!(event.target instanceof Element) || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey || event.button !== 0) return;
+    const link = event.target.closest<HTMLAnchorElement>(eligible);
+    if (!link) return;
+    const group = link.closest('[data-review-results]') ? '[data-review-results] a[data-photo-viewer]' : `${eligible}:not([data-review-results] a)`;
+    const sources = new Set<string>();
+    photos = [...document.querySelectorAll<HTMLAnchorElement>(group)].flatMap(anchor => {
+      const img = anchor.querySelector('img');
+      if (!img || sources.has(anchor.href)) return [];
+      sources.add(anchor.href);
+      return [{ link: anchor, source: anchor.href, caption: anchor.dataset.caption || img.alt }];
     });
+    const index = photos.findIndex(photo => photo.source === link.href);
+    if (index < 0) return;
+    event.preventDefault();
+    opener = link;
+    show(index);
+    dialog.showModal();
+    document.documentElement.classList.add('photo-viewer-open');
   });
   function restorePage(): void {
     document.documentElement.classList.remove('photo-viewer-open');

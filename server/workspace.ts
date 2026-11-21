@@ -4,6 +4,7 @@ import { createProjectsHandler } from './projects.ts';
 import { createNotesHandler } from './notes.ts';
 import { createLoginVaultHandler } from './login-vault.ts';
 import { createCouponsHandler } from './coupons.ts';
+import { createReviewHandler } from './reviews.ts';
 import { createAnalyticsDashboardHandler } from './analytics.ts';
 import type { ApiRequest, ApiResponse, HandlerOptions } from './availability.ts';
 
@@ -16,6 +17,7 @@ export function createWorkspaceHandler(options: HandlerOptions = {}) {
     ['logins', createLoginVaultHandler(options)],
     ['coupons', createCouponsHandler(options)],
     ['analytics', createAnalyticsDashboardHandler(options)],
+    ['reviews', createReviewHandler(true, options)],
   ]);
   return async (req: ApiRequest, res: ApiResponse) => {
     const section = req.query?.section;

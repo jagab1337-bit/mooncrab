@@ -1,3 +1,4 @@
+import { mountGuestReviews } from './guest-reviews.ts';
 import '@fontsource/cormorant-garamond/latin-400.css';
 import '@fontsource/cormorant-garamond/latin-500.css';
 import '@fontsource/cormorant-garamond/latin-400-italic.css';
@@ -201,6 +202,7 @@ if (ownerPath === '/booking' && location.hash === '#booking-policy-title') {
 }
 startMotion();
 startPhotoViewer();
+mountGuestReviews();
 startExploreCarousel();
 startRoomCarousel();
 

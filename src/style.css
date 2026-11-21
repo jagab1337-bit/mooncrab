@@ -69,18 +69,10 @@ img { max-width: 100%; }
 .reviews-section { background:var(--surface-muted); }
 .review-invitation { display:flex; align-items:center; justify-content:space-between; gap:24px; border-top:1px solid var(--line); padding-top:22px; }
 .review-invitation p { font:500 26px var(--serif); }
-.review-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr)); gap:20px; }
-.review-grid blockquote { margin:0; padding:30px; background:var(--cream); border:1px solid #ded5c6; border-radius:3px; font:500 23px/1.55 var(--serif); }
-.review-grid-single .review-card { display:grid; grid-template-columns:minmax(0,1fr) 180px; align-items:center; gap:46px; padding:35px 38px; }
 .review-quote p+p { margin-top:18px; }
-.review-grid footer { font:12px/1.6 Arial,sans-serif; margin-top:22px; }
-.review-grid-single footer { margin-top:0; padding-left:28px; border-left:1px solid var(--line); }
 .review-author strong { display:block; font:500 30px/1.2 var(--serif); margin:13px 0 5px; }
 .review-author>span:not(.review-stars) { display:block; color:var(--muted); font-size:11px; }
 .review-stars { display:flex; gap:3px; color:var(--notice-ink); }
-.review-stars svg { width:18px; height:18px; }
-.review-grid footer a { display:inline-flex; align-items:center; gap:8px; margin-top:15px; padding-bottom:3px; border-bottom:1px solid var(--sand); }
-.review-grid footer .arrow-icon { width:14px; height:14px; }
 .social-grid { display:grid; grid-template-columns:minmax(0,.8fr) minmax(0,1.2fr); align-items:center; gap:var(--layout-gap); }
 .social-grid h2 { margin-bottom:20px; }
 .social-grid p:not(.eyebrow) { color:var(--muted); font-size:14px; }
@@ -300,7 +292,6 @@ img { max-width: 100%; }
   .hero-description { max-width:480px; font-size:16px; }
   .room-copy>p:not(.room-lead), .location-copy>p:not(.eyebrow), .social-grid p:not(.eyebrow) { max-width:65ch; font-size:16px; }
   .pickup-copy>p:not(.eyebrow), .service-grid p:not(.eyebrow), .faq details>div { max-width:70ch; font-size:15px; }
-  .review-grid-single .review-card { grid-template-columns:minmax(0,1fr) 220px; font-size:clamp(23px,1.4vw,30px); }
   .booking-layout { grid-template-columns:minmax(320px,1fr) minmax(0,2fr); }
   .calendar-panel { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); align-items:start; }
   .calendar-panel>.booking-form { min-width:0; margin:0 0 0 var(--layout-gap); padding:0 0 0 var(--layout-gap); border-top:0; border-left:1px solid var(--line); }
@@ -398,9 +389,6 @@ img { max-width: 100%; }
   .social-images img { height:210px; }
   .review-invitation { display:block; }
   .review-invitation .text-link { margin-top:12px; }
-  .review-grid { grid-template-columns:1fr; }
-  .review-grid-single .review-card { display:block; padding:24px; font-size:22px; }
-  .review-grid-single footer { margin-top:24px; padding:21px 0 0; border-left:0; border-top:1px solid var(--line); }
   :root { font-size: 14px; }
   .section { padding-block: 43px; }
   .header-inner { min-height: 73px; gap: 15px; }

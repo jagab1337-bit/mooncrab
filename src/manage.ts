@@ -8,8 +8,10 @@ import type { BookingAgreement, BookingPayment } from '../shared/booking-terms.t
 import type { Communication } from './admin-email.ts';
 import type { PricingSnapshot } from '../shared/pricing.ts';
 import { formatPhp } from '../shared/pricing.ts';
+import { reviewLabelMarkup, translateReviewLabels } from './review-labels.ts';
 
 const workspacePages = {
+  '/admin/reviews': { label: 'Guest Reviews', load: async () => (await import('./admin-reviews.ts')).renderAdminReviews },
   '/admin/finance': { label: 'Finance Tracker', load: async () => (await import('./admin-finance.ts')).renderFinance },
   '/admin/vault': { label: 'Logins &amp; Notes', load: async () => (await import('./admin-vault.ts')).renderVault },
   '/admin/projects': { label: 'Project Management', load: async () => (await import('./admin-projects.ts')).renderProjects },
@@ -96,7 +98,7 @@ export async function renderManage(container: HTMLElement): Promise<void> {
         <a href="/admin">Dashboard</a>
         <a href="/admin#owner-requests-area">Bookings</a>
         <a href="/admin#owner-settings-area">Settings</a>
-        ${Object.entries(workspacePages).map(([path, page]) => `<a href="${path}">${page.label}</a>`).join('')}
+        ${Object.entries(workspacePages).map(([path, page]) => `<a href="${path}">${path === '/admin/reviews' ? reviewLabelMarkup('admin') : page.label}</a>`).join('')}
         <button id="workspace-sign-out" type="button">Sign out</button>
       </nav>
       <div id="owner-session-status" class="owner-card workspace-panel" role="status">
@@ -211,6 +213,8 @@ export async function renderManage(container: HTMLElement): Promise<void> {
     dateSources = result.dateSources ?? {};
     initialized = result.initialized;
   }
+
+  document.addEventListener('mooncrab-language-change', () => translateReviewLabels(nav));
 
   async function adminFetch(path: string, method = 'GET', body?: unknown): Promise<Record<string, unknown>> {
     const response = await fetch(path, { method, credentials: 'same-origin', cache: 'no-store', headers: { ...authHeaders(), ...(body ? { 'Content-Type': 'application/json' } : {}) }, ...(body ? { body: JSON.stringify(body) } : {}), signal: AbortSignal.timeout(20000) });

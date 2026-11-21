@@ -2,9 +2,10 @@ import { defineConfig, loadEnv } from 'vite';
 import { createAvailabilityHandler, createAdminAvailabilityHandler } from './server/availability.ts';
 import { createBookingRequestHandler, createAdminBookingRequestsHandler } from './server/booking-requests.ts';
 import { createAdminSessionHandler } from './server/admin-auth.ts';
-import { createPublicConfigHandler, createQuoteHandler, createAdminSettingsHandler } from './server/business-settings.ts';
+import { createQuoteHandler, createAdminSettingsHandler } from './server/business-settings.ts';
 import { createCalendarSyncHandler } from './server/external-calendars.ts';
 import { createWorkspaceHandler } from './server/workspace.ts';
+import { createConfigRoute } from './server/config-route.ts';
 import { createEmailOutboxHandler } from './server/email-outbox.ts';
 
 // Run the same handlers locally that Vercel serves in production.
@@ -16,7 +17,7 @@ export default defineConfig(({ mode }) => {
     ['/api/booking-requests', createBookingRequestHandler({ env })],
     ['/api/admin/booking-requests', createAdminBookingRequestsHandler({ env })],
     ['/api/admin/session', createAdminSessionHandler({ env })],
-    ['/api/config', createPublicConfigHandler({ env })],
+    ['/api/config', createConfigRoute({ env })],
     ['/api/quote', createQuoteHandler({ env })],
     ['/api/admin/settings', createAdminSettingsHandler({ env })],
     ['/api/admin/calendar-sync', createCalendarSyncHandler({ env })],
@@ -44,6 +45,7 @@ export default defineConfig(({ mode }) => {
           const res = {
             setHeader(name: string, value: string) { response.setHeader(name, value); },
             status(code: number) { response.statusCode = code; return res; },
+            end(value: Buffer) { response.end(value); },
             json(value: unknown) { response.setHeader('Content-Type', 'application/json'); response.end(JSON.stringify(value)); },
           };
           await handler({ method: request.method, headers: request.headers, query: Object.fromEntries(url.searchParams), ...(body ? { body: JSON.parse(body) } : {}) }, res);

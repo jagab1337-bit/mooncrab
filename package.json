@@ -18,7 +18,8 @@
     "@fontsource/lekton": "5.2.8",
     "libphonenumber-js": "1.12.35",
     "nodemailer": "10.6.0",
-    "otpauth": "9.6.0"
+    "otpauth": "9.6.0",
+    "sharp": "0.35.5"
   },
   "devDependencies": {
     "@playwright/test": "1.65.1",

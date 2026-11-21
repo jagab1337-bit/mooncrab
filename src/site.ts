@@ -1,7 +1,8 @@
 import { DIRECT_POLICY } from '../shared/booking-terms.ts';
 import { CONTACTS, CHANNELS } from './business.ts';
-import { renderReviews, renderSocial, renderChannelLinks } from './home-sections.ts';
+import { renderSocial, renderChannelLinks } from './home-sections.ts';
 import { renderExplorePreview } from './explore.ts';
+import { renderReviews } from './guest-reviews.ts';
 import { renderRoomCarousel } from './room-carousel.ts';
 export const home = '/';
 export const book = '/booking';
@@ -25,7 +26,7 @@ export function header() {
   return `<header class="header"><div class="header-inner">
     <a class="brand" href="${home}" aria-label="Mooncrab Siargao home"><span class="brand-art"><img class="brand-logo" src="/images/mooncrab-logo.webp?v=20261119" alt="Moon Crab Hostel · Siargao" width="1200" height="960"><span class="moon-glow" aria-hidden="true"></span><img class="brand-logo crab-detail" src="/images/mooncrab-logo.webp?v=20261119" alt="" aria-hidden="true" width="1200" height="960"></span></a>
     <nav aria-label="Main navigation"><a href="${home}#kasag"><span data-i18n="room">The room</span></a><a href="${home}#perks"><span data-i18n="perks">Guest perks</span></a><a href="${home}explore-siargao"><span data-i18n="explore">Explore Siargao</span></a><a href="${home}#location"><span data-i18n="location">Location</span></a><a href="${home}#details"><span data-i18n="details">Good to know</span></a></nav>
-    <div class="appearance-controls"><details><summary aria-label="Appearance">◐</summary><div class="appearance-menu"><label>Appearance<select data-theme-control><option value="system">System</option><option value="light">Light</option><option value="dark">Dark</option></select></label></div></details><details><summary aria-label="Language">◎</summary><div class="appearance-menu"><label>Find a language<input type="search" data-language-search></label><label><span data-language-caption>English</span><select data-language-select></select></label><small>Navigation and booking labels. Other content remains in English.</small></div></details><a class="button button-small" href="${book}"><span data-i18n="book">Plan your stay</span> ${arrow}</a></div>
+    <div class="appearance-controls"><details><summary aria-label="Appearance">◐</summary><div class="appearance-menu"><label>Appearance<select data-theme-control><option value="system">System</option><option value="light">Light</option><option value="dark">Dark</option></select></label></div></details><details><summary aria-label="Language">◎</summary><div class="appearance-menu"><label>Find a language<input type="search" data-language-search></label><label><span data-language-caption>English</span><select data-language-select></select></label><small>Navigation, booking and review labels. Guest reviews keep their original wording.</small></div></details><a class="button button-small" href="${book}"><span data-i18n="book">Plan your stay</span> ${arrow}</a></div>
   </div></header>`;
 }
 export function footer() {

@@ -30,14 +30,14 @@ function validBytes(extension: string, bytes: Buffer): boolean {
   }
 }
 const digest = (value: Buffer) => createHash('sha256').update(value).digest('hex');
-function encrypt(bytes: Buffer, key: Buffer, id: string): string {
+export function encrypt(bytes: Buffer, key: Buffer, id: string): string {
   const iv = randomBytes(12);
   const cipher = createCipheriv('aes-256-gcm', key, iv);
   cipher.setAAD(Buffer.from(id));
   const encrypted = Buffer.concat([cipher.update(bytes), cipher.final()]);
   return Buffer.concat([iv, cipher.getAuthTag(), encrypted]).toString('base64');
 }
-function decrypt(value: string, key: Buffer, id: string): Buffer {
+export function decrypt(value: string, key: Buffer, id: string): Buffer {
   const stored = Buffer.from(value, 'base64');
   const decipher = createDecipheriv('aes-256-gcm', key, stored.subarray(0, 12));
   decipher.setAAD(Buffer.from(id));
