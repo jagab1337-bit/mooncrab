@@ -7,10 +7,9 @@ import { renderRoomCarousel } from './room-carousel.ts';
 export const home = '/';
 export const book = '/booking';
 const kasagHero = `<figure class="hero-art">
-  <video class="hero-video" data-source="/videos/kasag-tour.mp4" poster="/images/bedroom.webp" preload="none" muted playsinline
+  <video class="hero-video" data-source="/videos/kasag-tour.mp4" poster="/images/bedroom.webp" preload="none" muted playsinline loop
     aria-label="A tour of Moon Crab Siargao, from the entrance to the KASAG bedroom and shared kitchen"></video>
   <div class="hero-media-actions">
-    <button class="hero-media-control" type="button" data-hero-playback hidden>Play video</button>
     <a class="photo-link hero-media-control" href="/images/full/bedroom.webp" data-photo-viewer
       data-caption="KASAG’s wooden bed, fresh linens, and green leaf wall hanging">View full photo</a>
   </div>
@@ -65,40 +64,26 @@ export function renderLanding(app: HTMLElement) {
 
 export function startHeroVideo(): void {
   const video = document.querySelector<HTMLVideoElement>('.hero-video');
-  const control = document.querySelector<HTMLButtonElement>('[data-hero-playback]');
-  if (!video || !control) return;
+  if (!video) return;
   const artwork = video.closest('.hero-art');
   const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
-  const sync = () => {
-    control.textContent = video.ended ? 'Replay video' : video.paused ? 'Play video' : 'Pause video';
+  const showVideo = () => {
+    if (!reducedMotion.matches) artwork?.classList.add('is-video-ready');
   };
-  const play = () => {
-    if (!video.hasAttribute('src')) video.src = video.dataset.source!;
-    void video.play().catch(sync);
-  };
-  control.hidden = false;
-  video.muted = true;
-  for (const event of ['play', 'pause', 'ended']) video.addEventListener(event, sync);
-  const showVideo = () => artwork?.classList.add('is-video-ready');
-  video.addEventListener('loadeddata', showVideo);
   video.addEventListener('playing', showVideo);
-  video.addEventListener('error', () => {
-    artwork?.classList.remove('is-video-ready');
-    video.hidden = true;
-    control.hidden = true;
-  });
-  control.addEventListener('click', () => {
-    if (video.paused) play();
-    else video.pause();
-  });
-  reducedMotion.addEventListener('change', event => {
-    video.autoplay = false;
-    if (event.matches) video.pause();
-  });
-  if (!reducedMotion.matches) {
-    video.autoplay = true;
-    play();
-  }
+  video.addEventListener('error', () => artwork?.classList.remove('is-video-ready'));
+  const applyMotionPreference = () => {
+    video.autoplay = !reducedMotion.matches;
+    if (reducedMotion.matches) {
+      video.pause();
+      artwork?.classList.remove('is-video-ready');
+      return;
+    }
+    if (!video.hasAttribute('src')) video.src = video.dataset.source!;
+    void video.play().catch(() => artwork?.classList.remove('is-video-ready'));
+  };
+  reducedMotion.addEventListener('change', applyMotionPreference);
+  applyMotionPreference();
 }
 
 export function startMotion() {

@@ -110,8 +110,6 @@ img { max-width: 100%; }
   min-height: 36px; padding: 0 10px; display: inline-flex; align-items: center; border-radius: 3px;
   color: #fffaf3; background: #39241ce8; border: 1px solid #fff9; font: 12px/1 Arial,sans-serif;
 }
-.hero-media-actions button { cursor: pointer; }
-.hero-video[hidden], .hero-media-actions [hidden] { display: none; }
 .hero-art figcaption { position: absolute; inset: auto 0 0; padding: 18px 22px; display: flex; align-items: center; justify-content: space-between; gap: 20px; color: var(--cream); background: linear-gradient(transparent,#472f29b3); }
 .hero-art figcaption>span:first-child { font: 500 29px var(--serif); letter-spacing: 2px; }
 .hero-art figcaption>span:last-child { max-width: 190px; text-align: right; font: 10px/1.6 var(--mono); letter-spacing: 1.6px; }
