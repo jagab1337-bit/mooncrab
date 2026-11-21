@@ -8,7 +8,7 @@ import { authorizeAdmin } from './admin-auth.ts';
 import { normalizePhone, readBusinessSettings } from './business-settings.ts';
 import { calculatePricing } from '../shared/pricing.ts';
 import type { PricingSnapshot } from '../shared/pricing.ts';
-import { DIRECT_POLICY, externalSource, hasRecordedDirectPolicy, MANUAL_SOURCES, validPayment } from '../shared/booking-terms.ts';
+import { DIRECT_POLICY, externalSource, hasRecordedDirectPolicy, MANUAL_SOURCES, readStoredPayment, validPayment } from '../shared/booking-terms.ts';
 import type { BookingAgreement, BookingPayment } from '../shared/booking-terms.ts';
 import {
   BOOKING_RECORD_PREFIX, CLAIM_MILLISECONDS, EMAIL_JOB_PREFIX, EMAIL_OUTBOX_INDEX, EMAIL_PENDING_KEY, ENQUEUE_EMAIL_JOB_LUA,
@@ -133,9 +133,9 @@ function safeRecord(value: unknown): BookingRequest {
     optional.agreement = { version, acceptedAt, recordedBy };
   }
   if (record.payment !== undefined) {
-    if (!validPayment(record.payment)) throw new Error('Invalid booking payment');
-    const { totalCents, receivedCents } = record.payment;
-    optional.payment = { totalCents, receivedCents };
+    const payment = readStoredPayment(record.payment);
+    if (!payment) throw new Error('Invalid booking payment');
+    optional.payment = payment;
   }
   if (typeof record.declineReason === 'string') optional.declineReason = record.declineReason;
   if (isLocale(record.locale)) optional.locale=record.locale;
@@ -595,6 +595,11 @@ export function createAdminBookingRequestsHandler(options: EmailOptions = {}) {
         case 'email_sending': res.status(409).json({ error: 'The confirmation email is currently being submitted. Refresh after the attempt finishes before cancelling.' }); return;
         default: unavailable(res);
       }
-    } catch { unavailable(res); }
+    } catch {
+      if (req.method === 'GET') {
+        res.setHeader('Retry-After', '60');
+        res.status(503).json({ error: 'Stay requests could not load. Use Refresh requests to try again.' });
+      } else unavailable(res);
+    }
   };
 }

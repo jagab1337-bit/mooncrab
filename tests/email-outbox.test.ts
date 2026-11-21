@@ -136,6 +136,8 @@ test('confirmation distinguishes required deposit, verified payments and the out
   assert.match(unpaid.html, /Chat With Us on WhatsApp/);
   assert.ok(unpaid.text.includes(id));
   assertPublishedSignature(unpaid);
+  const stored = JSON.parse(JSON.stringify({ ...booking, payment: { totalCents: 800_000 } })) as EmailBooking;
+  assert.match(bookingEmail(stored, 'confirmation').text, /Payment received: No payment recorded/);
   const partial = bookingEmail({ ...booking, payment: { totalCents: 800_000, receivedCents: 150_000 } }, 'confirmation');
   assert.match(partial.text, /Payment received: ₱1,500/);
   assert.match(partial.text, /Remaining balance: ₱6,500/);

@@ -301,3 +301,24 @@ test('a slow session check never flashes the login form, and inner navigation ke
   await expect(login).toBeVisible();
   await expect(page.getByRole('heading', { name:'Finance Tracker' })).toBeHidden();
 });
+
+test('an unavailable request list stays distinct from an empty one and can be refreshed', async ({ page }) => {
+  await page.route('**/api/admin/session', route => route.fulfill({ json: { authenticated: true } }));
+  await page.route('**/api/admin/availability', route => route.fulfill({ json: { initialized: true, blockedDates: [] } }));
+  await page.route('**/api/admin/settings', route => route.fulfill({ json: DEFAULT_CONFIG }));
+  await page.route('**/api/admin/calendar-sync', route => route.fulfill({ json: { sources: [] } }));
+  await page.route('**/api/admin/email-outbox', route => route.fulfill({ json: { jobs: [] } }));
+  let unavailable = true;
+  await page.route('**/api/admin/booking-requests*', route => unavailable
+    ? route.fulfill({ status: 503, json: { error: 'Stay requests could not load. Use Refresh requests to try again.' } })
+    : route.fulfill({ json: { requests: [], total: 0 } }));
+
+  await page.goto('/admin#owner-requests-area');
+  const requests = page.getByRole('region', { name: 'Stay requests' });
+  await expect(requests.getByRole('status')).toContainText('Stay requests could not load.');
+  await expect(requests.getByText('No stay requests yet.', { exact: false })).toHaveCount(0);
+  await expect(requests.getByText('No matches')).toHaveCount(0);
+  unavailable = false;
+  await requests.getByRole('button', { name: 'Refresh requests' }).click();
+  await expect(requests.getByText('No stay requests yet.', { exact: false })).toBeVisible();
+});

@@ -59,6 +59,7 @@ export async function renderManage(container: HTMLElement): Promise<void> {
   let initializeApproved = false;
   let requestsBusy = false;
   let requestsLoadingAt = -1;
+  let requestsLoaded = false;
   let bookingRequests: BookingRequest[] = [];
   let requestOffset=0, requestTotal=0, requestSize=25;
   let pendingCount=0, upcomingCount=0;
@@ -153,7 +154,7 @@ export async function renderManage(container: HTMLElement): Promise<void> {
         <div class="workspace-actions"><button type="button" id="owner-archive-selected" disabled>Archive selected</button><button type="button" id="owner-restore-selected" disabled>Restore selected</button></div>
         <p id="owner-requests-status" class="owner-status" role="status" aria-live="polite"></p>
         <div id="owner-requests-list"></div>
-        <div class="workspace-actions"><button type="button" id="owner-requests-prev">Previous</button><span id="owner-requests-page"></span><button type="button" id="owner-requests-next">Next</button></div>
+        <div class="workspace-actions"><button type="button" id="owner-requests-prev" disabled>Previous</button><span id="owner-requests-page"></span><button type="button" id="owner-requests-next" disabled>Next</button></div>
       </section>
       <section id="owner-settings-area" class="owner-card owner-settings" hidden><h2>Rates & business settings</h2><p class="owner-hint">KASAG is the only room. Rate changes apply to new quotes; existing requests retain their original estimate.</p><form id="owner-settings-form"><div class="owner-settings-grid"><label>Nightly rate · PHP<input name="nightlyPhp" type="number" min="1" step="1" required></label><label>Weekly package · PHP<input name="weeklyPhp" type="number" min="1" step="1" required></label><label>30-night package · PHP<input name="monthlyPhp" type="number" min="1" step="1" required></label><label>Minimum nights<input name="minimumNights" type="number" min="2" max="90" step="1" required></label><label>Maximum nights<input name="maxNights" type="number" min="2" max="90" step="1" required></label></div><div class="owner-check-options"><label><input name="weeklyEnabled" type="checkbox"> Enable 7-night packages</label><label><input name="monthlyEnabled" type="checkbox"> Enable 30-night packages</label></div><div class="owner-settings-grid"><label>Business phone<input name="phone" type="tel" required></label><label>WhatsApp link<input name="whatsappUrl" type="url" required></label><label>Facebook URL<input name="facebookUrl" type="url" required></label><label>Instagram URL<input name="instagramUrl" type="url" required></label><label>Business email<input name="email" type="email" required></label><label>Booking sender alias<input name="bookingEmail" type="email" required></label></div><label class="owner-manual-notes">Additional booking sources <small>One per line</small><textarea name="bookingSources" rows="3" maxlength="1220"></textarea></label><p class="owner-hint">Changing an email address here does not authorize its sending alias in Spacemail. Provider configuration is still required.</p><button class="owner-primary" type="submit">Save rates & settings</button><p id="owner-settings-status" class="owner-status" role="status"></p></form><button id="owner-show-password" type="button" class="owner-text-button">Change administrator password</button></section>
       <section id="owner-integrations-area" class="owner-card owner-settings" hidden><h2>Calendar & email connections</h2><p class="owner-hint">External calendars update periodically and may be delayed. Feed URLs and email credentials stay on the server.</p><div class="owner-integration-actions"><button id="owner-sync-calendars" type="button">Refresh external calendars</button><button id="owner-drain-email" type="button">Process queued emails</button><button id="owner-refresh-integrations" type="button">Refresh connection status</button></div><p id="owner-integrations-status" class="owner-status" role="status"></p><div id="owner-calendar-connections"></div><div id="owner-email-connections"></div></section>
@@ -465,7 +466,8 @@ export async function renderManage(container: HTMLElement): Promise<void> {
     query<HTMLElement>('#owner-date-state').textContent = '';
     query<HTMLElement>('#owner-date-protection').textContent = '';
     bookingRequests = [];
-    pendingRanges=[];pendingCount=0;upcomingCount=0;requestFilters.reset();requestOffset=0;
+    requestsLoaded = false;
+    pendingRanges=[];pendingCount=0;upcomingCount=0;requestFilters.reset();requestOffset=0;requestTotal=0;
     manualForm.reset();
     manualForm.closest('details')!.open = false;
     requestsList.replaceChildren();
@@ -633,9 +635,10 @@ export async function renderManage(container: HTMLElement): Promise<void> {
   function drawRequests(): void {
     requestsList.replaceChildren();
     selectedArchives.clear(); updateArchiveButtons();
-    requestPrev.disabled=requestOffset===0;requestNext.disabled=requestOffset+requestSize>=requestTotal;
-    query('#owner-requests-page').textContent=requestTotal?`${requestOffset+1}–${Math.min(requestOffset+requestSize,requestTotal)} of ${requestTotal}`:'No matches';
+    requestPrev.disabled=!requestsLoaded||requestOffset===0;requestNext.disabled=!requestsLoaded||requestOffset+requestSize>=requestTotal;
+    query('#owner-requests-page').textContent=!requestsLoaded?'':requestTotal?`${requestOffset+1}–${Math.min(requestOffset+requestSize,requestTotal)} of ${requestTotal}`:'No matches';
     drawOverview();
+    if (!requestsLoaded) return;
     if (bookingRequests.length === 0) {
       const empty = document.createElement('p');
       empty.className = 'owner-requests-empty';
@@ -864,9 +867,16 @@ export async function renderManage(container: HTMLElement): Promise<void> {
       pendingCount=typeof result.pending==='number'?result.pending:bookingRequests.filter(booking=>booking.status==='pending').length;
       upcomingCount=typeof result.upcoming==='number'?result.upcoming:bookingRequests.filter(booking=>booking.status==='confirmed'&&booking.checkOut>today).length;
       pendingRanges=Array.isArray(result.pendingRanges)?result.pendingRanges as string[][]:bookingRequests.filter(booking=>booking.status==='pending').map(booking=>[booking.checkIn,booking.checkOut]);
+      requestsLoaded = true;
       requestsStatus.textContent = `${pendingCount} active pending requests`;
     } catch (error) {
-      if (authenticated && sessionCheck === generation) requestsStatus.textContent = error instanceof Error ? error.message : 'Stay requests could not be loaded. Try again.';
+      if (authenticated && sessionCheck === generation) {
+        requestsLoaded = false;
+        bookingRequests = [];
+        pendingRanges = [];
+        requestTotal = pendingCount = upcomingCount = 0;
+        requestsStatus.textContent = error instanceof Error ? error.message : 'Stay requests could not be loaded. Try again.';
+      }
     } finally {
       if (requestsLoadingAt === generation) requestsLoadingAt = -1;
       if (authenticated && sessionCheck === generation) {
@@ -1073,8 +1083,8 @@ export async function renderManage(container: HTMLElement): Promise<void> {
     const overview = query<HTMLElement>('#owner-overview');
     overview.replaceChildren();
     const values = [
-      [pendingCount, 'Pending requests'],
-      [upcomingCount, 'Upcoming stays'],
+      [requestsLoaded ? pendingCount : '—', 'Pending requests'],
+      [requestsLoaded ? upcomingCount : '—', 'Upcoming stays'],
       [[...savedDates].filter(date => date >= today).length, 'Manual blocked nights'],
       [[...importedDates].filter(date => date >= today).length, 'Imported nights'],
     ];

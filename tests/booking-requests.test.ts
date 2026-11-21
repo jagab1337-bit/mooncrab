@@ -269,12 +269,21 @@ test('owner records show validated occupancy and the computed extra guest supple
   assert.deepEqual(res.body, { requests: [{ ...record, guests: 3, extraGuestFeePhp: 1000 }] });
 });
 
+test('the paginated owner list accepts a stored confirmation with no received amount', async () => {
+  const confirmed = { ...record, status: 'confirmed', payment: { totalCents: payment.totalCents } };
+  const res = response();
+  const command: RedisCommand = async () => [[[JSON.stringify(confirmed), '']], 1, 0, 1, []];
+  await createAdminBookingRequestsHandler({ env, now, command })(adminRequest({ query: { view: 'all' } }), res);
+  assert.equal(res.code, 200);
+  assert.deepEqual(res.body, { requests: [{ ...confirmed, payment }], total: 1, pending: 0, upcoming: 1, pendingRanges: [] });
+});
+
 test('owner confirmation submits an atomic action for the correct occupied nights', async () => {
   const commands: Array<Array<string | number>> = [];
   const confirmed = { ...record, status: 'confirmed', payment };
   const command: RedisCommand = async (args) => {
     commands.push(args);
-    return args[0] === 'GET' ? JSON.stringify(record) : ['updated', JSON.stringify(confirmed)];
+    return args[0] === 'GET' ? JSON.stringify(record) : ['updated', JSON.stringify({ ...confirmed, payment: { totalCents: payment.totalCents } })];
   };
   const res = response();
   await createAdminBookingRequestsHandler({ env, now, command })(adminRequest({ method: 'PATCH', body: { id, action: 'confirm', payment } }), res);

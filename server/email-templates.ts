@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import { DIRECT_POLICY, externalSource, hasRecordedDirectPolicy, paymentSummary, validPayment } from '../shared/booking-terms.ts';
+import { DIRECT_POLICY, externalSource, hasRecordedDirectPolicy, paymentSummary, readStoredPayment } from '../shared/booking-terms.ts';
 import type { BookingAgreement, BookingPayment } from '../shared/booking-terms.ts';
 import type { BookingEmailKind } from '../shared/email-workflows.ts';
 import type { CouponApplied } from '../shared/coupons.ts';
@@ -99,10 +99,11 @@ function directPolicy(booking: EmailBooking, owner = false) {
 }
 
 function confirmedEmail(booking: EmailBooking, contacts: TemplateContacts) {
-  if (booking.status !== 'confirmed' || externalSource(booking.source) || !validPayment(booking.payment)) throw new Error('A confirmed direct reservation and agreed total are required.');
-  const { totalCents, receivedCents } = booking.payment;
+  const recordedPayment = readStoredPayment(booking.payment);
+  if (booking.status !== 'confirmed' || externalSource(booking.source) || !recordedPayment) throw new Error('A confirmed direct reservation and agreed total are required.');
+  const { totalCents, receivedCents } = recordedPayment;
   const money = (cents: number) => peso(cents / 100);
-  const payment = paymentSummary(booking.payment, DIRECT_POLICY.depositPercent);
+  const payment = paymentSummary(recordedPayment, DIRECT_POLICY.depositPercent);
   const rows = [
     ['Guest name', booking.name], ['Accommodation total', money(totalCents)],
     ['Required deposit (50%)', money(payment.deposit!)],

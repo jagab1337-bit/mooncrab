@@ -42,6 +42,14 @@ export function validPayment(value: unknown): value is BookingPayment {
     && (receivedCents === null || (Number.isSafeInteger(receivedCents) && receivedCents >= 0 && receivedCents < 10_000_000_000));
 }
 
+export function readStoredPayment(value: unknown): BookingPayment | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return;
+  const { totalCents, receivedCents = null } = value as Partial<BookingPayment>;
+  // The storage round trip can omit a null received amount. Keep submitted payments strict.
+  const payment = { totalCents, receivedCents };
+  if (validPayment(payment)) return payment;
+}
+
 export function paymentSummary({ totalCents, receivedCents }: BookingPayment, depositPercent: number | null) {
   const received = receivedCents ?? 0;
   const deposit = depositPercent === null ? null : Math.ceil(totalCents * depositPercent / 100);
